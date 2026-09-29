@@ -352,13 +352,14 @@ var bootDone = h.withServerLane(async function() {
       initializationOptions: { foam: { features: {
         hover: false, semanticTokens: false, signatureHelp: false,
         folding: false, documentColor: false, documentLink: false, 'diagnostics.i18n': false,
-        'codeLens.i18n': false, 'codeLens.hierarchy': false } } } } });
+        'codeLens.i18n': false, 'codeLens.hierarchy': false, inlayHints: false } } } } });
     var offRes = await waitFor(function(f) { return f.id === 1 && f.result; }, 'the initialize response');
     var offCaps = offRes.result.capabilities;
     test(offCaps.hoverProvider === undefined,          'hover: false omits hoverProvider');
     test(offCaps.semanticTokensProvider === undefined, 'semanticTokens: false omits semanticTokensProvider');
     test(offCaps.signatureHelpProvider === undefined,  'signatureHelp: false omits signatureHelpProvider');
     test(offCaps.foldingRangeProvider === undefined,   'folding: false omits foldingRangeProvider');
+    test(offCaps.inlayHintProvider === undefined,      'inlayHints: false omits inlayHintProvider');
     test(offCaps.colorProvider === undefined,          'documentColor: false omits colorProvider');
     test(offCaps.documentLinkProvider === undefined,   'documentLink: false omits documentLinkProvider');
     test(offCaps.codeLensProvider === undefined,
@@ -504,7 +505,8 @@ var bootDone = h.withServerLane(async function() {
     var onCaps = onRes.result.capabilities;
     test(onCaps.hoverProvider === true && !! onCaps.semanticTokensProvider &&
          !! onCaps.signatureHelpProvider && onCaps.foldingRangeProvider === true &&
-         onCaps.colorProvider === true && !! onCaps.documentLinkProvider,
+         onCaps.colorProvider === true && !! onCaps.documentLinkProvider &&
+         onCaps.inlayHintProvider === true,
       'defaults keep every provider phase 1 omitted — the omission came from the flag');
     test(!! onCaps.codeLensProvider,
       'codeLens.i18n at its default (on) keeps codeLensProvider even with codeLens.hierarchy left off');

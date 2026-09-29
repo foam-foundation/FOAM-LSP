@@ -116,6 +116,20 @@ test(cc.significantCalls('') .length === 0, 'significantCalls on empty text is e
 test(cc.significantCalls(callsText) === found,
   'the same text is answered from the memo, not re-scanned');
 
+// `nested` marks a call inside another foam call's parentheses — a class a
+// method builds at runtime. A regex literal's brackets must not count: the
+// unbalanced-looking `(\(([^)]*)\)` in src/foam/lang/stdlib.js:255 used to
+// leave every later call in that file marked nested.
+var nestText = [
+  "foam.LIB({ name: 'a', methods: [ function f(s) { return s.match(/^(\\(([^)]*)\\)[^=]*|([^=]+))=>/); } ] });",
+  "foam.CLASS({ name: 'B', methods: [ function g() { foam.CLASS({ name: 'Inner' }); } ] });",
+  "foam.CLASS({ name: 'C' });"
+].join('\n');
+var nestFound = cc.significantCalls(nestText);
+test(nestFound.length === 4 &&
+  nestFound.map(function(x) { return x.nested; }).join() === 'false,false,true,false',
+  'only the runtime call is nested; a regex literal\'s brackets are not code: ' +
+  JSON.stringify(nestFound.map(function(x) { return x.nested; })));
 
 section('FileClassifier.commentSpans — the comments the call scan skipped');
 
@@ -146,16 +160,14 @@ var csCommentedCall = "/*\nfoam.CLASS({ name: 'Dead' });\n*/\nfoam.CLASS({ name:
 test(cs.commentSpans(csCommentedCall).length === 1 && cs.significantCalls(csCommentedCall).length === 1,
   'a commented-out call is one comment span and not a significant call');
 
-// Known limitation: the scan has no regex-literal rule, so the `/*` inside
-// `/[/*]/` opens a block comment that runs to the next real `*/`, swallowing
-// the live code between. (With no later `*/` there is no span at all — an
-// unclosed block comment does not match.) It fails SAFE for auto-require:
-// more text counts as commented, so fewer places are written to, never a
-// place inside a real comment.
+// commentSpans shares significantCalls' walk, and with it the regex-literal
+// rule: the `/*` inside `/[/*]/` is part of the regex, not the start of a
+// block comment. Without that rule the span ran to the next real `*/` and
+// counted the live code between as commented.
 var csRegex = "var re = /[/*]/; var x = 1; /* c */";
-test(JSON.stringify(spans(csRegex)) === JSON.stringify([ '/*]/; var x = 1; /* c */' ]),
-  'known limitation: /[/*]/ opens a block comment reaching the next */');
+test(JSON.stringify(spans(csRegex)) === JSON.stringify([ '/* c */' ]),
+  'a regex literal\'s /* opens no comment; only the real one is a span: ' + JSON.stringify(spans(csRegex)));
 test(cs.commentSpans("var re = /[/*]/; var x = 1;").length === 0,
-  'known limitation: with no later */ the regex literal yields no span');
+  'a regex literal alone yields no span');
 
 test(cs.commentSpans('').length === 0, 'commentSpans on empty text is empty');
