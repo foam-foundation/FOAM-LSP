@@ -99,9 +99,10 @@ foam.CLASS({
       var map = {
         message:     bucket(), value:    bucket(), property: bucket(), method:  bucket(),
         pomFileName: bucket(), pomFlagValue: bucket(), pomJavaFileName: bucket(),
-        classRef: bucket(), comment:  bucket(), documentation: bucket(),
+        classRef: bucket(), comment:  bucket(), documentation: bucket(), cssBlock: bucket(),
         instCall: bucket(), instCreateReceiver: bucket(), instTagClass: bucket(), instClassRef: bucket(),
         instKey: bucket(), instValue: bucket(), memberRef: bucket(),
+        headEntry: bucket(), requiresEntry: bucket(),
         modelCall: [], modelName: [], modelPackage: [], modelRefines: [],
         propertyDef: [], methodDef: [],
         callClose: [], bodyClose: [], propClose: [], methodClose: [], close: []
@@ -126,12 +127,16 @@ foam.CLASS({
       // `also` — the later sightings — which a caller that knows which model
       // it is asking about can pick from. Readers that just want a position
       // see the same first record they always did.
-      var MULTI = { classRef: true, comment: true, documentation: true,
+      var MULTI = { classRef: true, comment: true, documentation: true, cssBlock: true,
         instCall: true, instCreateReceiver: true, instTagClass: true,
         instClassRef: true, instKey: true, instValue: true, memberRef: true,
         // pom scalar values repeat across entries ('js' in ten files:
         // rows), so unlike pomFileName these keep every span.
-        pomFlagValue: true, pomJavaFileName: true };
+        pomFlagValue: true, pomJavaFileName: true,
+        // One per model, but a file holds several models, and the record
+        // key is the entry's whole text: two models both saying
+        // `requires: [ 'foam.u2.View' ]` must keep both spans.
+        headEntry: true, requiresEntry: true };
 
       // Line-start offsets, computed once (O(n)), so each msg match resolves
       // line/col by binary search (O(log n)). Scanning text from offset 0 per
@@ -232,6 +237,24 @@ foam.CLASS({
         return out;
       }
       return { comment: flatten(map.comment), documentation: flatten(map.documentation) };
+    },
+
+    function collectCssBlocks(text) {
+      /** Spans of every top-level `css:` value's CONTENT (backticks excluded),
+       *  from the grammar's P.msg(cssBlock) records, sorted by start. Deduped
+       *  by startPos for the same backtracking reason as collectRanges. */
+      var byName = this.collectAxiomPositions(text).cssBlock;
+      var out = [], seen = {};
+      for ( var name in byName ) {
+        var arr = byName[name];
+        for ( var i = 0 ; i < arr.length ; i++ ) {
+          var rec = arr[i];
+          if ( seen[rec.startPos] ) continue;
+          seen[rec.startPos] = true;
+          out.push({ startPos: rec.startPos + 1, endPos: rec.endPos - 1 });
+        }
+      }
+      return out.sort(function(a, b) { return a.startPos - b.startPos; });
     },
 
     function collectInstantiations(text) {
@@ -1168,23 +1191,27 @@ foam.CLASS({
         // === SPECIFIC ENTRIES ===
         // Hints are sourced from AxiomCatalog via topHint() — keeps the
         // descriptions in one place and reachable from HoverHandler too.
-        // The model's `package:` and `refines:` strings are spans too, so an
-        // extent can be paired with its model by identity rather than by
-        // position (see modelEntryFor).
-        packageEntry: P.seq(key('package',  topHint('package')),  wsc, P.literal(':'), wsc,
-          P.msg(stringLiteral, { kind: 'modelPackage' })),
+        //
+        // The identity entries (package/name/extends/refines/implements) and
+        // requires are msg-tagged so completion can write a `requires:` edit
+        // at the right spot — see MemberCompletionHandler.requiresLayout_.
+        // Inside them, the model's `package:` and `refines:` strings are
+        // spans too, so an extent can be paired with its model by identity
+        // rather than by position (see modelEntryFor).
+        packageEntry: P.msg(P.seq(key('package',  topHint('package')),  wsc, P.literal(':'), wsc,
+          P.msg(stringLiteral, { kind: 'modelPackage' })), { kind: 'headEntry' }),
         // The model's own `name:` string (quotes included) is a 'modelName'
         // span: the outline selects it, and inlay hints sit right after it.
-        nameEntry:    P.seq(key('name',     topHint('name')),     wsc, P.literal(':'), wsc,
-          P.msg(stringLiteral, { kind: 'modelName' })),
-        extendsEntry: P.seq(key('extends',  topHint('extends')),  wsc, P.literal(':'), wsc,
-          quoted(P.sym('classRef'))),
+        nameEntry:    P.msg(P.seq(key('name',     topHint('name')),     wsc, P.literal(':'), wsc,
+          P.msg(stringLiteral, { kind: 'modelName' })), { kind: 'headEntry' }),
+        extendsEntry: P.msg(P.seq(key('extends',  topHint('extends')),  wsc, P.literal(':'), wsc,
+          quoted(P.sym('classRef'))), { kind: 'headEntry' }),
 
         // refines: 'foam.x.Y' — classRef-typed top-level slot. Promoted from
         // suggestion-only topLevelKey to first-class entry so go-to-def,
         // hover, and unknown-class diagnostics work the same as `extends:`.
-        refinesEntry: P.seq(key('refines', topHint('refines')), wsc, P.literal(':'), wsc,
-          P.msg(quoted(P.sym('classRef')), { kind: 'modelRefines' })),
+        refinesEntry: P.msg(P.seq(key('refines', topHint('refines')), wsc, P.literal(':'), wsc,
+          P.msg(quoted(P.sym('classRef')), { kind: 'modelRefines' })), { kind: 'headEntry' }),
 
         // sourceModel/targetModel: classRef-typed slots used by
         // foam.RELATIONSHIP({...}). Same treatment as extends/refines.
@@ -1263,15 +1290,21 @@ foam.CLASS({
           P.seq(catalogAlt('sectionKey'), wsc, P.literal(':'), wsc, anyValue),
           P.sym('genericEntry')
         ),
-        cssEntry: P.seq(key('css', topHint('css')), wsc, P.literal(':'), wsc, backtickString),
+        // The css: value is msg-tagged so a handler that works inside the
+        // block (DocumentColorHandler's swatches) gets its exact span from
+        // this parse. The alternative, text.indexOf(model.css), finds the
+        // first copy of the text, which is the wrong block when two models in
+        // one file share a css body. The span includes both backticks.
+        cssEntry: P.seq(key('css', topHint('css')), wsc, P.literal(':'), wsc,
+          P.msg(backtickString, { kind: 'cssBlock' })),
 
         // implements: ['foam.x.Y'] — same classRef parsing as extends.
         // FOAM allows implements to reference any class id, not just
         // foam.INTERFACE-declared ones (e.g., StringFilterView implements
         // foam.mlang.Expressions, which is a class).
-        implementsEntry: P.seq(key('implements', topHint('implements')), wsc, P.literal(':'), wsc, P.literal('['), wsc,
+        implementsEntry: P.msg(P.seq(key('implements', topHint('implements')), wsc, P.literal(':'), wsc, P.literal('['), wsc,
           repeatList(P.seq(wsc, quoted(P.sym('classRef')), wsc)),
-          wsc, P.optional(P.literal(']'))),
+          wsc, P.optional(P.literal(']'))), { kind: 'headEntry' }),
 
         // A require is a class-id string, optionally aliased
         // ('foam.mlang.expr.ABS as Absolute'), or a `{ path, name?, flags? }`
@@ -1279,12 +1312,12 @@ foam.CLASS({
         // first one ended the class body — src/foam/dao/EasyDAO.js lost all
         // 104 members to an object require, src/foam/mlang/Expressions.js
         // everything after its first alias.
-        requiresEntry: P.seq(key('requires', topHint('requires')), wsc, P.literal(':'), wsc, P.literal('['), wsc,
+        requiresEntry: P.msg(P.seq(key('requires', topHint('requires')), wsc, P.literal(':'), wsc, P.literal('['), wsc,
           repeatList(P.seq(wsc, P.alt(
             quoted(P.seq(P.sym('classRef'),
               P.optional(P.seq(P.repeat(wsChar, null, 1), P.literal('as'), P.repeat(wsChar, null, 1), identifier)))),
             P.sym('object')), wsc)),
-          wsc, P.optional(P.literal(']'))),
+          wsc, P.optional(P.literal(']'))), { kind: 'requiresEntry' }),
 
         // messages: [ { name: 'LABEL_X', message: '…' } ]
         // Each name's string content is msg-tagged so collectAxiomPositions
