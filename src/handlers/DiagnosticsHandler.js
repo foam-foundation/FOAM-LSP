@@ -871,7 +871,7 @@ foam.CLASS({
           while ( e < src.length && /[a-zA-Z0-9_\-]/.test(src[e]) ) e++;
           var name = src.substring(caret.end, e);
           if ( ! defs[name] ) { defs[name] = []; order.push(name); }
-          defs[name].push({ offset: css.base + caret.start, len: e - caret.start });
+          defs[name].push({ offset: css.base + caret.start, len: e - caret.start, sym: caret.raw });
         }
         return false;
       });
@@ -907,7 +907,7 @@ foam.CLASS({
           // UNNECESSARY: the rule is dead CSS, so the editor fades it out
           // on top of the warning squiggle.
           this.addDiag_(diagnostics, text, defs[name][j].offset, defs[name][j].len, 2,
-            "Unused CSS class '^" + name + "': no matching this.myClass('" + name + "') call",
+            "Unused CSS class '" + defs[name][j].sym + name + "': no matching this.myClass('" + name + "') call",
             undefined, { tags: [ this.Diagnostic.UNNECESSARY ] });
         }
       }

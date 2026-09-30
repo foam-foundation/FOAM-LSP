@@ -358,8 +358,8 @@ foam.CLASS({
         addToken(base + match.index, match[0].length, 2);
       }
 
-      // ^ and ^name selectors (FOAM myClass shorthand)
-      var myClassPattern = /\^([a-zA-Z][\w-]*)?/g;
+      // ^, ^name, << and <<name selectors (FOAM myClass shorthand)
+      var myClassPattern = /(?:<<|\^)([a-zA-Z][\w-]*)?/g;
       while ( ( match = myClassPattern.exec(cssStr) ) !== null ) {
         addToken(base + match.index, match[0].length, 0);
       }
