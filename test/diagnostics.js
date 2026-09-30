@@ -226,6 +226,15 @@ var selfWarns = diagWithTokens.handle(selfSrc).filter(function(d) { return /Unus
 test(selfWarns.length === 1 && selfWarns[0].message.indexOf("'<<bar'") !== -1,
   'Unused <<classname: <<bar is flagged, <<foo (applied via myClass) is not');
 
+// A selector '^' is deprecated for '<<'; the ^ of [class^=x] and a '^' in a string are not the shorthand.
+var caretSrc =
+  "foam.CLASS({\n  package: 'test',\n  name: 'CaretCss',\n" +
+  "  css: `\n    ^a { color: red; }\n    <<b { color: blue; }\n" +
+  "    [class^=x] { content: '^'; }\n  `\n})";
+var caretDiags = diagWithTokens.handle(caretSrc).filter(function(d) { return d.code === 'deprecated-css-caret'; });
+test(caretDiags.length === 1 && caretDiags[0].range.start.line === 4 && caretDiags[0].severity === 4,
+  "Deprecated '^': only the ^ of ^a is flagged, as a hint");
+
 // Dynamic myClass(var) → suppress unused-class diagnostics entirely
 var dynamicSrc =
   "foam.CLASS({\n  package: 'test',\n  name: 'DynamicMyClass',\n" +
