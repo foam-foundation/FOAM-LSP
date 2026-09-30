@@ -241,6 +241,11 @@ since the server started gets no hint until the class is reloaded. Journals
 - The license header is copied verbatim from a sibling `.js` in the same folder, and the package is derived from the path below `src/` (or below the nearest `pom.js`)
 - Refuses to scaffold outside the workspace root the client opened
 
+### Registration Lint
+- `foam/lint` reports the registration a new class still needs in another file: a `pom.js` entry, the `ruleGroups.jrl` group its rule names, a `StrategyReference` entry, a `parsers.jrl` order no other parser uses; plus empty `catch` blocks under `tools/lsp`
+- Runs only when asked (VS Code **FOAM: Lint Registrations** and on save, MCP `foam_lint`, `lint-cli.js`), so it has no `foam.features.*` flag; VS Code has its own `foam.lint.*` settings
+- See **Lint** below
+
 ### Feature toggles
 - Every noisy feature above can be turned off: diagnostics, hints, completion, hover, semantic tokens, signature help, folding, colour swatches, document links, inlay hints, and each CodeLens
 - Three layers, lowest precedence first: built-in defaults, a `foam-lsp.json` at the workspace root (team defaults, checked in), then the client's own `initializationOptions.foam` (one developer's editor settings)
@@ -350,11 +355,118 @@ in `journals/locales.jrl` closes the gate even with a live model.
 **Flag toggle / model swap not picked up.** Same as changing `foam.flags` —
 restart the LSP (kill the MCP server or restart the agent) to re-probe.
 
+## Lint
+
+Registration-completeness lint — catches the "authored the class, forgot the
+separate registration entry" bug class: a Rule whose `ruleGroup` is defined
+nowhere, a StrategyReference pointing at a missing class, strategy
+implementors with no StrategyReference entry, ambiguous parser order, and
+POM membership. These are cross-file checks the per-file diagnostics above
+can't see (`LintHandler.js`).
+
+### The checks
+
+| Check | Severity | Consequence |
+|---|---|---|
+| `pom-membership` | ERROR | `foam.CLASS`/`ENUM`/`INTERFACE` file in no `pom.js` (never compiles into a build), or a `pom.js` entry pointing at a missing file |
+| `rule-group` | ERROR (WARN if the group is defined only in a *different* deployment dir) | `rules.jrl` entry's `ruleGroup` isn't defined in a reachable `ruleGroups.jrl` — the rule silently never fires |
+| `strategy-ref` | ERROR for a jrl entry pointing at a class in no pom at all; WARN for an entry pointing at a class that is registered but flag-gated (e.g. `js&test` — not loaded under current flags); WARN for a strategy implementor with no `StrategyReference` entry | ERROR case is a stale/typo'd entry; flag-gated WARN is usually expected for test-only strategies; no-entry WARN makes the class invisible in the Rule-creation UI (often intentional for jrl-only actions) |
+| `parser-order` | WARN | Two `parsers.jrl` entries share an `order:` value within the same reachable set — parser selection is ambiguous |
+| `bare-catch` | ERROR | A `catch` block under `tools/lsp` with no statement (a comment alone counts as empty) — the error vanishes and a broken feature looks like an empty result |
+
+### `foam/lint` request
+
+```
+foam/lint  { scope?: 'all' | 'paths', paths?: string[], checks?: string[],
+             strategyTargets?: string[] }
+        →  { findings: [{ check, severity, path, line, message, fix? }] }
+```
+
+- `scope: 'paths'` (with `paths`) filters findings to those anchored in the
+  given files — pass `git diff --name-only <ref>` output for a diff-scoped
+  run; the LSP itself never runs git.
+- `checks` restricts which of the five checks run (default: all five).
+  Unrecognized check names throw rather than silently returning clean.
+- `strategyTargets` extends the `strategy-ref` implementor scan beyond the
+  default `['foam.core.ruler.RuleAction']`.
+
+### MCP tool: `foam_lint`
+
+Exposed by `tools/lsp/editors/mcp/server.js` with params
+`{ scope?, paths?, checks?, strategyTargets? }`, forwarding straight to
+`foam/lint`. Output is compact text: one `SEVERITY  check  path:line` header
+per finding with an indented message (and `fix:` line when present),
+followed by an `N error(s), M warn(s)` summary.
+
+### CLI
+
+```bash
+node foam3/tools/lsp/lint-cli.js [--diff <ref>] [--checks a,b]
+     [--strategy-targets x,y] [--format text|json] [--strict]
+```
+
+Run from the FOAM project root (the dir containing `pom.js` + `foam3/`).
+Boots pmake directly (no LSP server) — pays the ~30s index boot per run;
+fine for CI/pre-push, not per-commit hooks. `--diff <ref>` runs
+`git diff --name-only <ref>` and scopes findings to those paths.
+
+Exit codes:
+| Code | Meaning |
+|---|---|
+| `0` | Clean, or warnings only (without `--strict`) |
+| `1` | Errors present, or (with `--strict`) any warnings present |
+| `2` | pmake boot failure, or `lint()` threw (e.g. an unrecognized `--checks` name) |
+
+### Suppressing a finding
+
+Add `// foam-lint-ignore: strategy-ref` anywhere in the implementing class's
+file to suppress the "no StrategyReference entry" warn for that class —
+for strategy implementors that are intentionally jrl-only and never
+surfaced in the Rule-creation UI.
+
+Add a `// foam-lint-ignore: bare-catch` line to a file to suppress its
+`bare-catch` findings; say why in the same comment. The marker counts only on
+a line of its own, not quoted inside a string. The fix the check asks for is
+`logLspError(context, err)` from `tools/lsp/logError.js` (see "A fallback
+leaves a trace" in `CLAUDE.md`).
+
+### VS Code
+
+The extension paints findings into its own `foam-lint` diagnostic collection —
+separate from the `Analyze Workspace` diagnostics, so it refreshes on its own
+cadence and can be switched off independently. It lints once at startup and
+again (debounced) after every `.js`/`.jrl` save, and adds a `Registration`
+section to the FOAM sidebar grouped by check.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `foam.lint.enable` | `true` | master switch |
+| `foam.lint.checks` | `rule-group`, `strategy-ref`, `parser-order` | `pom-membership` is off by default — on a mature workspace it reports hundreds of pre-existing findings |
+| `foam.lint.scope` | `openFiles` | which findings become diagnostics; `workspace` shows all. The sidebar always shows workspace-wide totals |
+| `foam.lint.strategyTargets` | `[]` | extra implementor targets for `strategy-ref`, set per project in `.vscode/settings.json` |
+
+Commands: **FOAM: Lint Registrations** (also the checklist button on the FOAM
+sidebar) and **FOAM: Clear Lint Findings**.
+
+The sidebar caps each check at 100 leaves and closes the list with an
+`… and N more` item; set `foam.lint.scope` to `workspace` to see every finding
+in the Problems panel, or run `lint-cli.js` for the full list.
+
+Two honest limitations worth knowing about: the `vscodeLint` test category
+compiles the extension and tests the pure model only — on a machine without
+`tools/lsp/editors/vscode/node_modules` it reports 0 passed / 0 failed and the
+suite still goes green, so a green run there does not mean the lint model was
+exercised. And the sidebar — both its counts and its leaf icons — treats any
+severity that is not `'error'` as a warning; today `foam/lint` only emits
+`'error'` and `'warn'`, so this is exact, but a future third severity would
+silently land in the warning bucket.
+
 ## VS Code Extension
 
 ### Sidebar Panel
 - **Analysis**: run button, stats, auto-analyze on startup
 - **Files with Issues**: expandable tree with clickable diagnostics
+- **Registration**: foam-lint findings grouped by check, workspace-wide totals
 - **Patterns**: grouped diagnostic patterns with counts
 - **Active Flags**: js, java, web, test, node, swift — clickable toggles
 - **Server Info**: indexed classes, files, property types
@@ -419,6 +531,8 @@ FOAM-LSP/
 │   ├── CursorAnalyzer.js          # Shared text utilities
 │   ├── TypeTracker.js             # Variable type resolution
 │   ├── server.js                  # JSON-RPC main loop (500+ lines)
+│   ├── lint-cli.js                # foam-lint from the command line (no LSP server)
+│   ├── lintChecks.js              # foam-lint check names (one list for every surface)
 │   ├── handlers/
 │   │   ├── pom.js
 │   │   ├── CompletionHandler.js   # textDocument/completion
@@ -430,6 +544,7 @@ FOAM-LSP/
 │   │   ├── JavaBlockValidator.js  # javaCode validation
 │   │   ├── WorkspaceAnalyzer.js   # foam/analyzeWorkspace
 │   │   ├── SemanticTokenHandler.js # textDocument/semanticTokens
+│   │   ├── LintHandler.js         # foam/lint
 │   │   └── ReferencesHandler.js   # textDocument/references
 │   └── test/
 │       ├── pom.js
@@ -451,7 +566,9 @@ FOAM-LSP/
     │   └── src/
     │       ├── extension.ts
     │       ├── FoamTreeProvider.ts
-    │       └── FoamAnalysisRunner.ts
+    │       ├── FoamAnalysisRunner.ts
+    │       ├── FoamLintRunner.ts
+    │       └── lintModel.ts
     ├── emacs/                     # Emacs (eglot + lsp-mode)
     │   ├── lsp-foam.el
     │   └── install.sh

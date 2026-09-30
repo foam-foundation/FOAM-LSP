@@ -24,6 +24,8 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `JournalEntryIndex.js` | Query-driven journal lookup: service name / model-entry id → journal file + line. Entry slicing is `JrlLoader.sliceEntries()`; this class only adds ordered ops + a per-entry key. Service lookups touch only services.jrl, but EVERY services.jrl in the workspace (`FoamIndex.getServiceJournalFiles()`, nearest-first from the asking file); entry lookups stay on the pom/source directory answer (`getJournalDirs()`); journals over maxFileSize skipped; raw-text pre-gate skips parsing non-matching files; per-entry eval isolates malformed entries; per-file parses cached by mtime+size; invalidated on .jrl save | `getServiceLocations()`, `getEntryLocations()`, `invalidate()` |
 | `FileClassifier.js` | The ONE answer to "what kind of file is this", and the ONE scan for where a file's `foam.<X>(` calls are | `classify(uri, text)`. `.jrl` and `pom.js` are decided by FILENAME; everything else by PARSE — the first significant `foam.UPPERCASE(` call, where significant means outside comments and string literals. Every gate routes through one shared instance — server dispatch, `DiagnosticsHandler`, and the six handlers that used to sniff with their own regex (CodeLens, Completion, Definition, Hover, MemberCompletion, Symbol), which is also what makes its per-URI memo effective. `significantCalls(text)` returns every such call as `{ name, offset, line, nested }` — `nested` marks a call inside another foam call's parentheses (a class a method builds at runtime); the bracket count skips regex literals by the previous-token rule — see "Model positions" below; `commentSpans(text)` returns the comments that same walk skipped, so it shares the regex-literal rule: the `/*` in `var re = /[/*]/;` is part of the regex, not a comment |
 | `server.js` | JSON-RPC main loop | Message dispatch, handler creation, helper functions |
+| `lintChecks.js` | foam-lint check names | The one list `LintHandler.ALL_CHECKS` and the MCP `foam_lint` enum both read, so a new check shows up on every surface |
+| `lint-cli.js` | foam-lint without the LSP server | Boots pmake, runs `LintHandler.lint()`; `--diff <ref>`, `--checks`, `--format text\|json`, `--strict`; exit 0 clean or warns only, 1 any error (any finding with `--strict`), 2 boot or check-name error |
 | `lsp-start.js` | Entry point | Console redirect, buildlib globals, pmake invocation |
 | `LSPMaker.js` | Build Maker for pmake | Sets flags, builds file index, starts server |
 
@@ -57,6 +59,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `CodeLensHandler.js` | `textDocument/codeLens` | Two independent, feature-toggled lenses: `codeLens.i18n` (missing-translation counts, delegates to `I18nHandler.scanMissingLanguages` — so it inherits that entry point's `translationReady` gate AND its test/demo/mock URI exemption; also requires `hints.i18nMissingLanguage`, since clicking translates) and `codeLens.hierarchy` (subclass counts, informational — anchored on the advertised no-op command `foam.lens.info`; a click is answered with null). Both bail on a multi-model file. |
 | `DocumentColorHandler.js` | `textDocument/{documentColor,colorPresentation}` | Swatches for `$token`s and raw colour values inside `css:` blocks. Block spans come from the grammar's `cssBlock` records (`FoamClassGrammar.collectCssBlocks`), not `text.indexOf(model.css)`; tokens resolve through `CSSTokenResolver.resolveTokenValue` against the class whose `css:` block uses them (Tabs and SegmentedTabs both declare `tabActiveColor`, with different values), and a token that does not resolve to a colour gets no swatch. A raw literal counts only on the value side of a declaration and outside `url(...)` and quoted strings, so `#add` selectors, `url(#abc)` and `content: '#fff'` get no swatch. Raw literals are offered back as hex, rgb and hsl, with the author's current form first. `colorPresentation` on a `$token` answers the token's own text, so picking a colour never rewrites a token into a literal |
 | `DocumentLinkHandler.js` | `textDocument/documentLink` | Clickable class ids, target `file://<class file>#L<declaration line>`. Model files: the grammar's `classRef` + `instClassRef` records, kept only when the span is a WHOLE quoted string (a requires rename, `'foam.u2.DetailView as DV'`, counts: the alias sits between id and quote) — the grammar records a registered prefix before it checks the closing quote, so `'foam.u2.ViewXYZ'` leaves a `foam.u2.View` record that would link the wrong class. Journals: `FoamIndex.scanJrlClassRefs` (the semantic-token refs) plus `JrlGrammar` string refs that name a registered class, deduped by span. The `JrlGrammar` pass is skipped (and logged) above `maxJrlGrammarSize` (1 MB, the `JournalEntryIndex.maxFileSize` line): on a 4.6 MB data journal it cost ~5.5 s per request; the scan-only path takes ~120 ms. The grammar instance is JrlHandler's, so both share one parse cache. No file on record, no link |
+| `LintHandler.js` | `foam/lint` (custom request; also MCP `foam_lint`, `lint-cli.js`) | Registration checks across files: `pom-membership` (delegates to `PomValidator`), `rule-group`, `strategy-ref`, `parser-order`, plus `bare-catch` (empty catch under `tools/lsp`). Findings are `{ check, severity: 'error'\|'warn', path, line, message, fix? }`; `scope: 'paths'` filters to given files. No `featureConfig` — it runs only when asked; VS Code's `foam.lint.*` settings gate the client side. Suppression markers: `foam-lint-ignore: strategy-ref` / `bare-catch` |
 | `ScaffoldHandler.js` | `workspace/executeCommand` `foam.scaffold.newClass` | Builds a `WorkspaceEdit` (new class file + pom.js `files:` append) from `{ dir, name }`. Nothing written to disk server-side — the client applies the edit. No `featureConfig` — the command only runs when explicitly invoked. Containment: `wsRoot` and the target dir are both `fs.realpathSync`'d before comparison (a lexical compare let `ln -s / <ws>/escape` target `/etc`), and with `requireWsRoot` set and no `rootUri` from the client it refuses outright rather than inheriting `process.cwd()`. The derived package is validated as a dotted identifier path — a folder named `it's` is refused, not emitted into `package: '…'`. |
 
 ### Workspace usage indexes
@@ -82,6 +85,8 @@ that drops all of them together.
 | `extension.ts` | Spawns LSP server, registers commands, auto-analyzes on startup |
 | `FoamTreeProvider.ts` | Sidebar tree view (analysis, files, patterns, flags) |
 | `FoamAnalysisRunner.ts` | Sends workspace analysis request, handles progress |
+| `FoamLintRunner.ts` | Sends `foam/lint`, paints the `foam-lint` diagnostic collection, re-lints after `.js`/`.jrl` saves |
+| `lintModel.ts` | Pure lint model (scope filter, grouping, finding → diagnostic, counts) — imports nothing from `vscode`, so the `vscodeLint` test category runs it in plain node |
 
 ## FOAM Concepts for AI Agents
 
@@ -304,7 +309,8 @@ diagnosis, not tidiness: a silent catch makes a broken index and a class
 nobody references produce the same answer, an empty list, and no editor shows
 the difference. `context` names the operation and its subject
 (`'getStringUsages for ' + classId`), so the trace says which file or class
-dropped out.
+dropped out. `foam/lint`'s `bare-catch` check lists the catches under
+`tools/lsp` that skip it (`node tools/lsp/lint-cli.js --checks bare-catch`).
 
 The same rule shapes the counters: `WorkspaceAnalyzer` reports a file it could
 not analyze as `filesFailed` rather than counting it scanned, and a failed
@@ -327,7 +333,7 @@ cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 
 # One category (see test/run.js CATEGORIES for the full list —
 # foamIndex, grammar, utilities, completion, hover, diagnostics, i18n,
-# navigation, java, jrl, editorFeatures, typeHierarchy, usageIndex,
+# navigation, java, jrl, lint, vscodeLint, editorFeatures, typeHierarchy, usageIndex,
 # callHierarchy, pomValidation, pomNavigation, mcp):
 node <FOAM-LSP>/test/run.js i18n
 
