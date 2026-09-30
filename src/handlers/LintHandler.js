@@ -10,7 +10,7 @@ foam.CLASS({
 
   documentation: `Registration-completeness lint — cross-file checks the
     per-file diagnostics cannot see: a Rule whose ruleGroup is defined
-    nowhere (rule silently never fires), a StrategyReference pointing at a
+    nowhere (the rule never runs; the only sign is a startup log line), a StrategyReference pointing at a
     missing class, strategy implementors with no StrategyReference entry
     (invisible in the Rule-creation UI), ambiguous parser order, POM
     membership (delegates to PomValidator), and empty catch blocks under
@@ -131,7 +131,7 @@ foam.CLASS({
           if ( defFiles.length === 0 ) {
             findings.push(this.finding_('rule-group', 'error', ruleFiles[i], line,
               "rule '" + rule.id + "' references ruleGroup '" + rule.ruleGroup +
-              "' — not defined in any ruleGroups.jrl (rule will silently never fire)",
+              "' — not defined in any ruleGroups.jrl (the rule never runs; the server only logs 'RuleGroup not found' at startup)",
               'add the group to ' + path.join(path.dirname(ruleFiles[i]), 'ruleGroups.jrl')));
           } else if ( ! defFiles.some(function(d) { return reachable(d, ruleFiles[i]); }) ) {
             findings.push(this.finding_('rule-group', 'warn', ruleFiles[i], line,

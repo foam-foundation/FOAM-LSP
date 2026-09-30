@@ -369,7 +369,7 @@ can't see (`LintHandler.js`).
 | Check | Severity | Consequence |
 |---|---|---|
 | `pom-membership` | ERROR | `foam.CLASS`/`ENUM`/`INTERFACE` file in no `pom.js` (never compiles into a build), or a `pom.js` entry pointing at a missing file |
-| `rule-group` | ERROR (WARN if the group is defined only in a *different* deployment dir) | `rules.jrl` entry's `ruleGroup` isn't defined in a reachable `ruleGroups.jrl` — the rule silently never fires |
+| `rule-group` | ERROR (WARN if the group is defined only in a *different* deployment dir) | `rules.jrl` entry's `ruleGroup` isn't defined in a reachable `ruleGroups.jrl` — the rule never runs, and the server only logs `RuleGroup not found` at startup. A rule with no `ruleGroup` takes `default` and is not flagged |
 | `strategy-ref` | ERROR for a jrl entry pointing at a class in no pom at all; WARN for an entry pointing at a class that is registered but flag-gated (e.g. `js&test` — not loaded under current flags); WARN for a strategy implementor with no `StrategyReference` entry | ERROR case is a stale/typo'd entry; flag-gated WARN is usually expected for test-only strategies; no-entry WARN makes the class invisible in the Rule-creation UI (often intentional for jrl-only actions) |
 | `parser-order` | WARN | Two `parsers.jrl` entries share an `order:` value within the same reachable set — parser selection is ambiguous |
 | `bare-catch` | ERROR | A `catch` block under `tools/lsp` with no statement (a comment alone counts as empty) — the error vanishes and a broken feature looks like an empty result |

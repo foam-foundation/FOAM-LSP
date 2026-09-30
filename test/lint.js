@@ -62,8 +62,8 @@ test(betaFinding[0] && betaFinding[0].severity === 'error', 'undefined ruleGroup
 test(betaFinding[0] && betaFinding[0].check === 'rule-group', 'finding.check is rule-group');
 test(betaFinding[0] && betaFinding[0].path === path.join(FIX, 'deployment/beta/rules.jrl'),
   'finding anchored at the rules.jrl that references the group');
-test(betaFinding[0] && /never fire/.test(betaFinding[0].message),
-  'message states the consequence (silently never fires)');
+test(betaFinding[0] && /never runs/.test(betaFinding[0].message),
+  'message states the consequence (the rule never runs)');
 
 var gammaFinding = rg.filter(function(f) { return f.path.indexOf('gamma') !== -1; });
 test(gammaFinding.length === 1 && gammaFinding[0].severity === 'warn',
