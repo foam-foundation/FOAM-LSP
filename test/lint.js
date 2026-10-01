@@ -5,7 +5,7 @@
  */
 
 // Registration-completeness lint (LintHandler): jrl discovery, rule-group,
-// strategy-ref, parser-order, pom-membership mapping, scope filtering.
+// strategy-ref, pom-membership mapping, scope filtering.
 // Uses throwaway fixture trees in os.tmpdir() + a duck-typed stub index so
 // the checks are tested in isolation from the real workspace.
 
@@ -19,8 +19,8 @@ section('LintHandler — fixtures');
 
 // One shared fixture tree for all lint tests.
 var FIX = fs.mkdtempSync(path.join(os.tmpdir(), 'foam-lint-'));
-function write(rel, content) {
-  var p = path.join(FIX, rel);
+function write(rel, content, base) {
+  var p = path.join(base || FIX, rel);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, content);
   return p;
@@ -37,20 +37,20 @@ write('deployment/beta/rules.jrl',
 // deployment/gamma: rule whose group exists only in deployment/alpha (cross-deployment → warn)
 write('deployment/gamma/rules.jrl',
   'p({"class":"foam.core.ruler.Rule","id":"gamma-rule","ruleGroup":"alpha-group"})\n');
+// deployment/zeta: a Rule SUBCLASS row, written multi-line, naming a missing group
+write('deployment/zeta/rules.jrl',
+  'p({"class":"foam.core.ruler.Rule","id":"zeta-ok","ruleGroup":"alpha-group"})\n' +
+  'p({\n  "class": "foam.core.dig.DUGRule",\n  "id": "zeta-dug",\n  "ruleGroup": "zeta-missing"\n})\n');
 
 var handler = foam.parse.lsp.handlers.LintHandler.create({ root: FIX });
 
-var ruleFiles = handler.findJrlFiles_('rules.jrl');
-test(ruleFiles.length === 3, 'findJrlFiles_ finds all rules.jrl (got ' + ruleFiles.length + ')');
-test(ruleFiles.every(function(f) { return path.isAbsolute(f); }), 'findJrlFiles_ returns absolute paths');
-
-var groupFiles = handler.findJrlFiles_('ruleGroups.jrl');
-test(groupFiles.length === 1, 'findJrlFiles_ scoped by basename (got ' + groupFiles.length + ')');
-
-var line = handler.findLine_(path.join(FIX, 'deployment/alpha/rules.jrl'), '"alpha-rule"');
-test(line === 1, 'findLine_ returns 1-based line of needle (got ' + line + ')');
-test(handler.findLine_(path.join(FIX, 'deployment/alpha/rules.jrl'), '"nope"') === 1,
-  'findLine_ falls back to 1 when needle absent');
+var found = handler.findJrlFiles_([ 'rules.jrl', 'ruleGroups.jrl', 'strategyReferences.jrl' ]);
+test(found['rules.jrl'].length === 4, 'findJrlFiles_ finds all rules.jrl (got ' + found['rules.jrl'].length + ')');
+test(found['rules.jrl'].every(function(f) { return path.isAbsolute(f); }), 'findJrlFiles_ returns absolute paths');
+test(found['ruleGroups.jrl'].length === 1,
+  'findJrlFiles_ collects every requested name in the same walk (got ' + found['ruleGroups.jrl'].length + ')');
+test(Array.isArray(found['strategyReferences.jrl']) && found['strategyReferences.jrl'].length === 0,
+  'findJrlFiles_ answers an empty list for a name with no file');
 
 section('LintHandler — rule-group');
 
@@ -73,6 +73,29 @@ test(gammaFinding[0] && gammaFinding[0].message.indexOf('deployment/alpha') !== 
 
 test(rg.filter(function(f) { return f.path.indexOf('alpha') !== -1; }).length === 0,
   'locally-defined group produces no finding');
+
+var zeta = rg.filter(function(f) { return f.message.indexOf('zeta-missing') !== -1; });
+test(zeta.length === 1 && zeta[0].severity === 'error',
+  'a Rule subclass row (DUGRule) is checked too, not only class foam.core.ruler.Rule');
+test(zeta[0] && zeta[0].line === 2,
+  'finding line is the 1-based line the jrl entry starts on (got ' + ( zeta[0] && zeta[0].line ) + ')');
+test(betaFinding[0] && betaFinding[0].line === 1, 'single-line entry on line 1 reports line 1');
+
+// A checkout that itself sits under a directory named src: only a src/ BELOW
+// the root makes a group reachable from every deployment dir.
+var SRCPARENT = fs.mkdtempSync(path.join(os.tmpdir(), 'foam-lint-srcparent-'));
+var SRCROOT   = path.join(SRCPARENT, 'src', 'checkout');
+write('deployment/one/ruleGroups.jrl', 'p({"class":"foam.core.ruler.RuleGroup","id":"one-group"})\n', SRCROOT);
+write('deployment/two/rules.jrl',
+  'p({"class":"foam.core.ruler.Rule","id":"two-rule","ruleGroup":"one-group"})\n', SRCROOT);
+write('src/three/ruleGroups.jrl', 'p({"class":"foam.core.ruler.RuleGroup","id":"three-group"})\n', SRCROOT);
+write('deployment/four/rules.jrl',
+  'p({"class":"foam.core.ruler.Rule","id":"four-rule","ruleGroup":"three-group"})\n', SRCROOT);
+var srcParentRg = foam.parse.lsp.handlers.LintHandler.create({ root: SRCROOT }).checkRuleGroups_();
+test(srcParentRg.length === 1 && srcParentRg[0].severity === 'warn' && srcParentRg[0].path.indexOf('two') !== -1,
+  'root under a src/ dir: a group only in another deployment dir still warns (got ' + srcParentRg.length + ')');
+test(! srcParentRg.some(function(f) { return f.path.indexOf('four') !== -1; }),
+  'root under a src/ dir: a group under <root>/src/ is still reachable');
 
 section('LintHandler — strategy-ref');
 
@@ -135,25 +158,6 @@ test(sr.filter(function(f) { return f.message.indexOf('SuppressedAction') !== -1
 test(sr.filter(function(f) { return f.message.indexOf('CompositeRuleAction') !== -1; }).length === 0,
   'implementors outside <root>/src are skipped (foam3 core noise)');
 
-section('LintHandler — parser-order');
-
-write('src/com/example/parsers.jrl',
-  'p({"class":"com.example.Parser","id":"generic-xml","order":5})\n');
-// delta: local parser colliding with the src-level order 5
-write('deployment/delta/parsers.jrl',
-  'p({"class":"com.example.Parser","id":"balance-xml","order":5})\n');
-// epsilon: no collision (order 4 beats generic 5)
-write('deployment/epsilon/parsers.jrl',
-  'p({"class":"com.example.Parser","id":"epsilon-xml","order":4})\n');
-
-var po = handler.checkParserOrder_();
-var dup = po.filter(function(f) { return f.message.indexOf('balance-xml') !== -1; });
-test(dup.length === 1 && dup[0].severity === 'warn', 'duplicate order in a reachable set → one warn');
-test(dup[0] && dup[0].message.indexOf('generic-xml') !== -1 && dup[0].message.indexOf('5') !== -1,
-  'warn names both parsers and the colliding order value');
-test(po.filter(function(f) { return f.message.indexOf('epsilon-xml') !== -1; }).length === 0,
-  'distinct orders produce no finding');
-
 section('LintHandler — pom-membership mapping + lint() orchestrator');
 
 var stubValidator = {
@@ -179,23 +183,14 @@ test(pm.some(function(f) { return /not listed in any pom\.js/.test(f.message); }
 
 var all = full.lint({});
 test(all && Array.isArray(all.findings), 'lint({}) returns { findings: [] }');
-test(all.findings.some(function(f) { return f.check === 'rule-group'; }) &&
-     all.findings.some(function(f) { return f.check === 'pom-membership'; }),
+test(full.ALL_CHECKS.every(function(c) { return all.findings.some(function(f) { return f.check === c; }); }),
   'lint({}) runs every check');
+test(JSON.stringify(full.ALL_CHECKS) === JSON.stringify([ 'pom-membership', 'rule-group', 'strategy-ref' ]),
+  'ALL_CHECKS is the three registration checks');
 
-var only = full.lint({ checks: [ 'parser-order' ] });
-test(only.findings.every(function(f) { return f.check === 'parser-order'; }),
+var only = full.lint({ checks: [ 'rule-group' ] });
+test(only.findings.length > 0 && only.findings.every(function(f) { return f.check === 'rule-group'; }),
   'checks filter runs only the named checks');
-
-var scoped = full.lint({ scope: 'paths', paths: [ path.join(FIX, 'deployment/beta/rules.jrl') ] });
-test(scoped.findings.length >= 1 &&
-     scoped.findings.every(function(f) { return f.path === path.join(FIX, 'deployment/beta/rules.jrl'); }),
-  'paths scope keeps only findings anchored in the given files');
-
-var scopedRel = full.lint({ scope: 'paths', paths: [ 'deployment/beta/rules.jrl' ] });
-test(scopedRel.findings.length >= 1 &&
-     scopedRel.findings.every(function(f) { return f.path === path.join(FIX, 'deployment/beta/rules.jrl'); }),
-  'paths scope resolves root-relative inputs (diff mode passes git-relative paths)');
 
 var unknownThrew = false, unknownMsg = '';
 try { full.lint({ checks: [ 'pom_membership' ] }); }
@@ -203,47 +198,55 @@ catch ( e ) { unknownThrew = true; unknownMsg = e.message; }
 test(unknownThrew && unknownMsg.indexOf('unknown check') !== -1,
   'lint() throws on an unrecognized check name instead of silently reading clean');
 
-section('LintHandler — bare-catch');
+section('LintHandler — paths scope');
 
-var bcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-bare-catch-'));
-fs.writeFileSync(path.join(bcDir, 'Bad.js'),
-  "function f() {\n  try { g(); } catch (e) {}\n}\n");
-fs.writeFileSync(path.join(bcDir, 'CommentOnly.js'),
-  "function f() {\n  try { g(); } catch (e) { /* ignore */ }\n}\n");
-fs.writeFileSync(path.join(bcDir, 'Good.js'),
-  "function f() {\n  try { g(); } catch (e) { console.error('x: ' + e.message); }\n}\n");
-fs.writeFileSync(path.join(bcDir, 'Suppressed.js'),
-  "// foam-lint-ignore: bare-catch\nfunction f() {\n  try { g(); } catch (e) {}\n}\n");
-// The marker quoted in a string is not a suppression — only a line of its own is.
-fs.writeFileSync(path.join(bcDir, 'QuotesMarker.js'),
-  "var hint = 'add // foam-lint-ignore: bare-catch';\nfunction f() {\n  try { g(); } catch (e) {}\n}\n");
+var orphanPath = path.join(FIX, 'src/com/example/Orphan.js');
+var scoped = full.lint({ scope: 'paths', paths: [ orphanPath ] });
+test(scoped.findings.length === 1 && scoped.findings[0].path === orphanPath,
+  'paths scope keeps a finding anchored in a given file, and nothing from untouched checks');
 
-var bc = handler.runBareCatch_([ bcDir ]);
+var scopedRel = full.lint({ scope: 'paths', paths: [ 'src/com/example/Orphan.js' ] });
+test(scopedRel.findings.length === 1 && scopedRel.findings[0].path === orphanPath,
+  'paths scope resolves root-relative inputs (diff mode passes git-relative paths)');
 
-test(bc.some(function(f) { return f.path.endsWith('Bad.js') && f.line === 2; }),
-  'bare-catch: empty body flagged, 1-based line matches findLine_ convention');
-test(bc.some(function(f) { return f.path.endsWith('CommentOnly.js'); }),
-  'bare-catch: comment-only body flagged');
-test(! bc.some(function(f) { return f.path.endsWith('Good.js'); }),
-  'bare-catch: logged catch clean');
-test(! bc.some(function(f) { return f.path.endsWith('Suppressed.js'); }),
-  'bare-catch: ignore comment suppresses file');
-test(bc.some(function(f) { return f.path.endsWith('QuotesMarker.js'); }),
-  'bare-catch: marker inside a string does not suppress the file');
-test(bc.every(function(f) { return f.check === 'bare-catch' && f.severity === 'error'; }),
-  'bare-catch: finding shape (check id + lowercase severity, matching every other check)');
+test(full.lint({ scope: 'paths', paths: [ 'README.md' ] }).findings.length === 0,
+  'paths scope touching no check input and no anchored file yields nothing');
 
-section('LintHandler — bare-catch lint() wiring');
+var viaRules = full.lint({ scope: 'paths', paths: [ 'deployment/beta/rules.jrl' ] });
+test(viaRules.findings.some(function(f) { return f.path.indexOf('gamma') !== -1; }) &&
+     viaRules.findings.every(function(f) { return f.check === 'rule-group'; }),
+  'touching a rules.jrl keeps every rule-group finding, even ones in other rules.jrl files');
 
-write('tools/lsp/BadRoot.js',
-  "function f() {\n  try { g(); } catch (e) {}\n}\n");
+var viaPom = full.lint({ scope: 'paths', paths: [ 'src/com/example/pom.js' ] });
+test(viaPom.findings.length === 2 && viaPom.findings.every(function(f) { return f.check === 'pom-membership'; }),
+  'touching a pom.js keeps every pom-membership finding');
 
-var bcViaLint = handler.lint({ checks: [ 'bare-catch' ] });
-test(bcViaLint.findings.length === 1 && bcViaLint.findings[0].path.endsWith('BadRoot.js'),
-  'lint({checks:["bare-catch"]}) defaults the scan root to <root>/tools/lsp');
+// The rename: the diff holds only ruleGroups.jrl, the error lands on the
+// rules.jrl that still names the old id.
+var REN = fs.mkdtempSync(path.join(os.tmpdir(), 'foam-lint-rename-'));
+write('deployment/a/rules.jrl',
+  'p({"class":"foam.core.ruler.Rule","id":"a-rule","ruleGroup":"Notifications"})\n', REN);
+write('deployment/a/ruleGroups.jrl',
+  'p({"class":"foam.core.ruler.RuleGroup","id":"Notifications"})\n', REN);
+var renHandler = foam.parse.lsp.handlers.LintHandler.create({ root: REN });
+var renParams  = { scope: 'paths', paths: [ 'deployment/a/ruleGroups.jrl' ], checks: [ 'rule-group' ] };
+test(renHandler.lint(renParams).findings.length === 0, 'rename case: clean before the rename');
+write('deployment/a/ruleGroups.jrl',
+  'p({"class":"foam.core.ruler.RuleGroup","id":"NotificationsRenamed"})\n', REN);
+var renamed = renHandler.lint(renParams).findings;
+test(renamed.length === 1 && renamed[0].severity === 'error' &&
+     renamed[0].path === path.join(REN, 'deployment/a/rules.jrl'),
+  'rename case: a diff with only ruleGroups.jrl reports the error on the untouched rules.jrl');
 
-test(full.ALL_CHECKS.indexOf('bare-catch') !== -1, 'bare-catch registered in ALL_CHECKS');
+// A deleted strategy class: its error lands on strategyReferences.jrl, which
+// the diff does not hold.
+var viaClass = full.lint({ scope: 'paths', paths: [ 'src/com/example/MissingAction.js' ], checks: [ 'strategy-ref' ] });
+test(viaClass.findings.length === 1 && viaClass.findings[0].message.indexOf('MissingAction') !== -1 &&
+     viaClass.findings[0].path.indexOf('strategyReferences.jrl') !== -1,
+  'deleted strategy class: the dangling-entry error is kept, and only that one');
+test(JSON.stringify(viaClass.findings[0]).indexOf('subject') === -1,
+  'the class a finding is about stays out of the JSON a client receives');
 
-var bcInAll = full.lint({});
-test(bcInAll.findings.some(function(f) { return f.check === 'bare-catch'; }),
-  'lint({}) (all checks) includes bare-catch findings');
+var viaRefs = full.lint({ scope: 'paths', paths: [ 'src/com/example/strategyReferences.jrl' ], checks: [ 'strategy-ref' ] });
+test(viaRefs.findings.some(function(f) { return f.message.indexOf('UnregisteredAction') !== -1; }),
+  'touching strategyReferences.jrl keeps every strategy-ref finding, including the implementor warns');

@@ -52,12 +52,12 @@ if ( ! fs.existsSync(TSC) ) {
     var FINDINGS = [
       { check: 'rule-group', severity: 'error', path: '/w/deployment/alpha/rules.jrl',
         line: 3, message: 'rule references missing group', fix: 'add the group' },
-      { check: 'parser-order', severity: 'warn', path: '/w/deployment/alpha/parsers.jrl',
-        line: 7, message: 'duplicate order' },
+      { check: 'strategy-ref', severity: 'warn', path: '/w/src/strategyReferences.jrl',
+        line: 7, message: 'flag-gated strategy' },
       { check: 'pom-membership', severity: 'error', path: '/w/src/Foo.js',
         line: 1, message: 'not listed in any pom.js', fix: 'add an entry' },
-      { check: 'parser-order', severity: 'warn', path: '/w/deployment/alpha/parsers.jrl',
-        line: 11, message: 'duplicate order' }
+      { check: 'strategy-ref', severity: 'warn', path: '/w/src/strategyReferences.jrl',
+        line: 11, message: 'flag-gated strategy' }
     ];
 
     // --- scopeFindings ---
@@ -76,9 +76,9 @@ if ( ! fs.existsSync(TSC) ) {
     // --- groupByFile ---
     var grouped = m.groupByFile(FINDINGS);
     test(grouped.size === 3, 'groupByFile returns one entry per distinct path (got ' + grouped.size + ')');
-    test(grouped.get('/w/deployment/alpha/parsers.jrl').length === 2,
+    test(grouped.get('/w/src/strategyReferences.jrl').length === 2,
       'groupByFile collects both findings sharing a path');
-    var pBucket = grouped.get('/w/deployment/alpha/parsers.jrl');
+    var pBucket = grouped.get('/w/src/strategyReferences.jrl');
     test(pBucket[0].line === 7 && pBucket[1].line === 11,
       'groupByFile preserves input order within a bucket');
     test(grouped.get('/w/src/Foo.js')[0] === FINDINGS[2],
@@ -105,7 +105,7 @@ if ( ! fs.existsSync(TSC) ) {
     test(sOne.errors === 1 && sOne.warns === 2,
       'summarize does not confuse errors with warns (' + sOne.errors + '/' + sOne.warns + ')');
     test(s.byCheck.length === 3, 'summarize buckets by check name');
-    test(s.byCheck[0].check === 'parser-order' && s.byCheck[0].count === 2,
+    test(s.byCheck[0].check === 'strategy-ref' && s.byCheck[0].count === 2,
       'summarize orders buckets by descending count');
     test(s.byCheck[1].check === 'pom-membership' && s.byCheck[2].check === 'rule-group',
       'summarize breaks equal counts alphabetically');

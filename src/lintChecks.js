@@ -7,7 +7,5 @@
 module.exports = [
   'pom-membership',
   'rule-group',
-  'strategy-ref',
-  'parser-order',
-  'bare-catch'
+  'strategy-ref'
 ];

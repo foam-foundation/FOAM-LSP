@@ -242,7 +242,7 @@ since the server started gets no hint until the class is reloaded. Journals
 - Refuses to scaffold outside the workspace root the client opened
 
 ### Registration Lint
-- `foam/lint` reports the registration a new class still needs in another file: a `pom.js` entry, the `ruleGroups.jrl` group its rule names, a `StrategyReference` entry, a `parsers.jrl` order no other parser uses; plus empty `catch` blocks under `tools/lsp`
+- `foam/lint` reports the registration a new class still needs in another file: a `pom.js` entry, the `ruleGroups.jrl` group its rule names, a `StrategyReference` entry
 - Runs only when asked (VS Code **FOAM: Lint Registrations** and on save, MCP `foam_lint`, `lint-cli.js`), so it has no `foam.features.*` flag; VS Code has its own `foam.lint.*` settings
 - See **Lint** below
 
@@ -360,9 +360,8 @@ restart the LSP (kill the MCP server or restart the agent) to re-probe.
 Registration-completeness lint — catches the "authored the class, forgot the
 separate registration entry" bug class: a Rule whose `ruleGroup` is defined
 nowhere, a StrategyReference pointing at a missing class, strategy
-implementors with no StrategyReference entry, ambiguous parser order, and
-POM membership. These are cross-file checks the per-file diagnostics above
-can't see (`LintHandler.js`).
+implementors with no StrategyReference entry, and POM membership. These are
+cross-file checks the per-file diagnostics above can't see (`LintHandler.js`).
 
 ### The checks
 
@@ -371,8 +370,6 @@ can't see (`LintHandler.js`).
 | `pom-membership` | ERROR | `foam.CLASS`/`ENUM`/`INTERFACE` file in no `pom.js` (never compiles into a build), or a `pom.js` entry pointing at a missing file |
 | `rule-group` | ERROR (WARN if the group is defined only in a *different* deployment dir) | `rules.jrl` entry's `ruleGroup` isn't defined in a reachable `ruleGroups.jrl` — the rule never runs, and the server only logs `RuleGroup not found` at startup. A rule with no `ruleGroup` takes `default` and is not flagged |
 | `strategy-ref` | ERROR for a jrl entry pointing at a class in no pom at all; WARN for an entry pointing at a class that is registered but flag-gated (e.g. `js&test` — not loaded under current flags); WARN for a strategy implementor with no `StrategyReference` entry | ERROR case is a stale/typo'd entry; flag-gated WARN is usually expected for test-only strategies; no-entry WARN makes the class invisible in the Rule-creation UI (often intentional for jrl-only actions) |
-| `parser-order` | WARN | Two `parsers.jrl` entries share an `order:` value within the same reachable set — parser selection is ambiguous |
-| `bare-catch` | ERROR | A `catch` block under `tools/lsp` with no statement (a comment alone counts as empty) — the error vanishes and a broken feature looks like an empty result |
 
 ### `foam/lint` request
 
@@ -382,10 +379,16 @@ foam/lint  { scope?: 'all' | 'paths', paths?: string[], checks?: string[],
         →  { findings: [{ check, severity, path, line, message, fix? }] }
 ```
 
-- `scope: 'paths'` (with `paths`) filters findings to those anchored in the
-  given files — pass `git diff --name-only <ref>` output for a diff-scoped
-  run; the LSP itself never runs git.
-- `checks` restricts which of the five checks run (default: all five).
+- `scope: 'paths'` (with `paths`) keeps the findings a change to those files
+  can have caused — pass `git diff --name-only <ref>` output for a
+  diff-scoped run; the LSP itself never runs git. A finding is kept when it
+  sits in one of the paths, when the paths include a file its check reads
+  (`pom.js` for `pom-membership`; `rules.jrl` or `ruleGroups.jrl` for
+  `rule-group`; `strategyReferences.jrl` for `strategy-ref`), or when it is
+  about a strategy class whose file is among the paths. Renaming a group in
+  `ruleGroups.jrl` thus reports every `rules.jrl` that still names the old id,
+  and deleting a strategy class reports its now-dangling entry.
+- `checks` restricts which of the three checks run (default: all three).
   Unrecognized check names throw rather than silently returning clean.
 - `strategyTargets` extends the `strategy-ref` implementor scan beyond the
   default `['foam.core.ruler.RuleAction']`.
@@ -408,7 +411,8 @@ node foam3/tools/lsp/lint-cli.js [--diff <ref>] [--checks a,b]
 Run from the FOAM project root (the dir containing `pom.js` + `foam3/`).
 Boots pmake directly (no LSP server) — pays the ~30s index boot per run;
 fine for CI/pre-push, not per-commit hooks. `--diff <ref>` runs
-`git diff --name-only <ref>` and scopes findings to those paths.
+`git diff --name-only <ref>` (plus untracked files) and scopes findings to
+those paths, as `scope: 'paths'` above.
 
 Exit codes:
 | Code | Meaning |
@@ -424,12 +428,6 @@ file to suppress the "no StrategyReference entry" warn for that class —
 for strategy implementors that are intentionally jrl-only and never
 surfaced in the Rule-creation UI.
 
-Add a `// foam-lint-ignore: bare-catch` line to a file to suppress its
-`bare-catch` findings; say why in the same comment. The marker counts only on
-a line of its own, not quoted inside a string. The fix the check asks for is
-`logLspError(context, err)` from `tools/lsp/logError.js` (see "A fallback
-leaves a trace" in `CLAUDE.md`).
-
 ### VS Code
 
 The extension paints findings into its own `foam-lint` diagnostic collection —
@@ -441,7 +439,7 @@ section to the FOAM sidebar grouped by check.
 | Setting | Default | Meaning |
 |---|---|---|
 | `foam.lint.enable` | `true` | master switch |
-| `foam.lint.checks` | `rule-group`, `strategy-ref`, `parser-order` | `pom-membership` is off by default — on a mature workspace it reports hundreds of pre-existing findings |
+| `foam.lint.checks` | `rule-group`, `strategy-ref` | `pom-membership` is off by default — on a mature workspace it reports hundreds of pre-existing findings |
 | `foam.lint.scope` | `openFiles` | which findings become diagnostics; `workspace` shows all. The sidebar always shows workspace-wide totals |
 | `foam.lint.strategyTargets` | `[]` | extra implementor targets for `strategy-ref`, set per project in `.vscode/settings.json` |
 

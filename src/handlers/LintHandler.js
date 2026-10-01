@@ -12,13 +12,12 @@ foam.CLASS({
     per-file diagnostics cannot see: a Rule whose ruleGroup is defined
     nowhere (the rule never runs; the only sign is a startup log line), a StrategyReference pointing at a
     missing class, strategy implementors with no StrategyReference entry
-    (invisible in the Rule-creation UI), ambiguous parser order, POM
-    membership (delegates to PomValidator), and empty catch blocks under
-    tools/lsp (bare-catch — errors vanish silently). Serves the custom
-    foam/lint request. Never uses reference search — jrl cross-referencing
-    goes through JrlLoader + FoamIndex only. Checks degrade gracefully:
-    without 'index' the strategy-ref implementor direction (Direction B) is
-    skipped, and without 'pomValidator' pom-membership returns no findings.`,
+    (invisible in the Rule-creation UI), and POM membership (delegates to
+    PomValidator). Serves the custom foam/lint request. Never uses reference
+    search — jrl cross-referencing goes through JrlLoader + FoamIndex only.
+    Checks degrade gracefully: without 'index' the strategy-ref implementor
+    direction (Direction B) is skipped, and without 'pomValidator'
+    pom-membership returns no findings.`,
 
   requires: [ 'foam.parse.lsp.JrlLoader' ],
 
@@ -27,7 +26,16 @@ foam.CLASS({
     // foam_lint schema so a new check registers on both surfaces at once.
     ALL_CHECKS: require('../lintChecks'),
     DEFAULT_STRATEGY_TARGETS: [ 'foam.core.ruler.RuleAction' ],
-    IGNORE_MARKER: 'foam-lint-ignore: strategy-ref'
+    IGNORE_MARKER: 'foam-lint-ignore: strategy-ref',
+    // The files each check reads. A finding can sit in a file the change
+    // never touched: rename a group in ruleGroups.jrl and the error lands on
+    // the rules.jrl that names it. So a 'paths' scope keeps every finding of
+    // a check once one of that check's inputs is among the paths.
+    CHECK_INPUTS: {
+      'pom-membership': [ 'pom.js' ],
+      'rule-group':     [ 'rules.jrl', 'ruleGroups.jrl' ],
+      'strategy-ref':   [ 'strategyReferences.jrl' ]
+    }
   },
 
   properties: [
@@ -44,12 +52,14 @@ foam.CLASS({
   ],
 
   methods: [
-    function findJrlFiles_(basename) {
-      /** Bounded walk from root collecting files with this exact basename.
+    function findJrlFiles_(basenames) {
+      /** One bounded walk from root collecting files with any of these exact
+          basenames: { basename: [absolute paths] }, every name present.
           Same skip rules as PomValidator.walkSourceTree_. */
       var fs = require('fs');
       var path = require('path');
-      var out = [];
+      var out = {};
+      for ( var b = 0 ; b < basenames.length ; b++ ) out[basenames[b]] = [];
       var stack = [ this.root ];
       while ( stack.length ) {
         var dir = stack.pop();
@@ -63,43 +73,48 @@ foam.CLASS({
           if ( ent.name === 'build' || ent.name === 'out' ) continue;
           var full = path.join(dir, ent.name);
           if ( ent.isDirectory() ) stack.push(full);
-          else if ( ent.isFile() && ent.name === basename ) out.push(full);
+          else if ( ent.isFile() && out.hasOwnProperty(ent.name) ) out[ent.name].push(full);
         }
       }
       return out;
     },
 
-    function findLine_(filePath, needle) {
-      /** 1-based line of the first line containing needle; 1 if absent.
-          JrlLoader eval-loads entries and loses source positions, so
-          findings re-anchor by searching for the quoted id — a heuristic,
-          with line 1 as the fallback when the needle isn't found. */
-      var fs = require('fs');
-      try {
-        var lines = fs.readFileSync(filePath, 'utf8').split('\n');
-        for ( var i = 0 ; i < lines.length ; i++ ) {
-          if ( lines[i].indexOf(needle) !== -1 ) return i + 1;
-        }
-      } catch (e) {
-        require('../logError').logLspError('lint: read ' + filePath, e);
-      }
-      return 1;
+    function loadEntries_(filePath) {
+      /** The journal's entries as [ { obj, line } ], line 0-based where the
+          entry starts (JrlLoader.loadStringWithLines). */
+      var text;
+      try { text = require('fs').readFileSync(filePath, 'utf8'); }
+      catch (e) { require('../logError').logLspError('lint: read ' + filePath, e); return []; }
+      return this.loader.loadStringWithLines(text);
     },
 
-    function finding_(check, severity, filePath, line, message, fix) {
+    function underSrc_(filePath) {
+      /** True when a src/ directory sits between root and filePath. Tested on
+          the root-relative path: a checkout under ~/src/ would otherwise put
+          every file under /src/. */
+      var path = require('path');
+      return ( path.sep + path.relative(this.root, filePath) ).indexOf(path.sep + 'src' + path.sep) !== -1;
+    },
+
+    function finding_(check, severity, filePath, line, message, fix, subject) {
       var f = { check: check, severity: severity, path: filePath, line: line, message: message };
       if ( fix ) f.fix = fix;
+      // The class a finding is about, when that class's file is not the
+      // finding's own path. Non-enumerable: it serves the 'paths' scope only
+      // and stays out of the JSON a client receives.
+      if ( subject ) Object.defineProperty(f, 'subject_', { value: subject });
       return f;
     },
 
-    function checkRuleGroups_() {
+    function checkRuleGroups_(files) {
       var path = require('path');
       var self = this;
       var findings = [];
+      files = files || this.findJrlFiles_(this.CHECK_INPUTS['rule-group']);
 
       // groupId → [defining files]
       var defs = {};
-      var groupFiles = this.findJrlFiles_('ruleGroups.jrl');
+      var groupFiles = files['ruleGroups.jrl'];
       for ( var i = 0 ; i < groupFiles.length ; i++ ) {
         var groups = this.loader.filterByClass(
           this.loader.loadFile(groupFiles[i]), 'foam.core.ruler.RuleGroup');
@@ -110,24 +125,26 @@ foam.CLASS({
       }
 
       // Reachable = same dir as the rules.jrl, OR anywhere under
-      // <root>/journals/, OR any /src/ path; a group only defined in a
-      // DIFFERENT deployment dir demotes the finding to a warn (not an error).
+      // <root>/journals/, OR any src/ path below root; a group only defined
+      // in a DIFFERENT deployment dir demotes the finding to a warn (not an
+      // error).
       function reachable(defFile, ruleFile) {
         if ( path.dirname(defFile) === path.dirname(ruleFile) ) return true;
         if ( defFile.indexOf(path.join(self.root, 'journals') + path.sep) === 0 ) return true;
-        if ( defFile.indexOf(path.sep + 'src' + path.sep) !== -1 ) return true;
-        return false;
+        return self.underSrc_(defFile);
       }
 
-      var ruleFiles = this.findJrlFiles_('rules.jrl');
+      // Every row, whatever its class: Rule subclasses (DUGRule,
+      // PermissionedUserRule, ...) name a ruleGroup too. A row with no
+      // ruleGroup takes 'default' and is skipped below.
+      var ruleFiles = files['rules.jrl'];
       for ( var i = 0 ; i < ruleFiles.length ; i++ ) {
-        var rules = this.loader.filterByClass(
-          this.loader.loadFile(ruleFiles[i]), 'foam.core.ruler.Rule');
+        var rules = this.loadEntries_(ruleFiles[i]);
         for ( var j = 0 ; j < rules.length ; j++ ) {
-          var rule = rules[j];
+          var rule = rules[j].obj;
           if ( ! rule.ruleGroup ) continue;
           var defFiles = defs[rule.ruleGroup] || [];
-          var line = this.findLine_(ruleFiles[i], '"' + (rule.id || rule.ruleGroup) + '"');
+          var line = rules[j].line + 1;
           if ( defFiles.length === 0 ) {
             findings.push(this.finding_('rule-group', 'error', ruleFiles[i], line,
               "rule '" + rule.id + "' references ruleGroup '" + rule.ruleGroup +
@@ -145,37 +162,38 @@ foam.CLASS({
       return findings;
     },
 
-    function checkStrategyRefs_(strategyTargets) {
+    function checkStrategyRefs_(strategyTargets, files) {
       var fs = require('fs');
       var path = require('path');
       var findings = [];
       var targets = ( strategyTargets && strategyTargets.length ) ?
         strategyTargets : this.DEFAULT_STRATEGY_TARGETS;
+      files = files || this.findJrlFiles_(this.CHECK_INPUTS['strategy-ref']);
 
       // Collect all StrategyReference entries; Direction A along the way.
       var registered = {};
-      var refFiles = this.findJrlFiles_('strategyReferences.jrl');
+      var refFiles = files['strategyReferences.jrl'];
       for ( var i = 0 ; i < refFiles.length ; i++ ) {
-        var refs = this.loader.filterByClass(
-          this.loader.loadFile(refFiles[i]), 'foam.strategy.StrategyReference');
+        var refs = this.loadEntries_(refFiles[i]);
         for ( var j = 0 ; j < refs.length ; j++ ) {
-          var ref = refs[j];
+          var ref = refs[j].obj;
+          if ( ref['class'] !== 'foam.strategy.StrategyReference' ) continue;
           if ( ! ref.strategy ) continue;
           registered[ref.strategy] = true;
           if ( this.index && ! this.index.classExists(ref.strategy) ) {
             var flagGatedPath = this.index.getFilePath && this.index.getFilePath(ref.strategy);
             if ( flagGatedPath ) {
-              findings.push(this.finding_('strategy-ref', 'warn', refFiles[i],
-                this.findLine_(refFiles[i], '"' + ref.strategy + '"'),
+              findings.push(this.finding_('strategy-ref', 'warn', refFiles[i], refs[j].line + 1,
                 "StrategyReference '" + (ref.id || '') + "' points at class '" + ref.strategy +
                 "' — registered in a pom but flag-gated (not loaded under current flags)",
-                'expected for test-only strategies; verify the flags if this should be a production class'));
+                'expected for test-only strategies; verify the flags if this should be a production class',
+                ref.strategy));
             } else {
-              findings.push(this.finding_('strategy-ref', 'error', refFiles[i],
-                this.findLine_(refFiles[i], '"' + ref.strategy + '"'),
+              findings.push(this.finding_('strategy-ref', 'error', refFiles[i], refs[j].line + 1,
                 "StrategyReference '" + (ref.id || '') + "' points at class '" + ref.strategy +
                 "' which does not exist in the index",
-                'fix the class id or delete the stale entry'));
+                'fix the class id or delete the stale entry',
+                ref.strategy));
             }
           }
         }
@@ -207,60 +225,6 @@ foam.CLASS({
       return findings;
     },
 
-    function checkParserOrder_() {
-      var path = require('path');
-      var self = this;
-      var findings = [];
-      var seen = {};
-
-      var files = this.findJrlFiles_('parsers.jrl');
-      var srcFiles = files.filter(function(f) { return f.indexOf(path.sep + 'src' + path.sep) !== -1; });
-      var depFiles = files.filter(function(f) { return srcFiles.indexOf(f) === -1; });
-
-      function entriesOf(fileList) {
-        var out = [];
-        for ( var i = 0 ; i < fileList.length ; i++ ) {
-          var objs = self.loader.loadFile(fileList[i]);
-          for ( var j = 0 ; j < objs.length ; j++ ) {
-            if ( typeof objs[j].order === 'number' ) out.push({ entry: objs[j], file: fileList[i] });
-          }
-        }
-        return out;
-      }
-
-      // Different policy from checkRuleGroups_: parsers share one global
-      // registry, so each deployment parsers.jrl is checked against its own
-      // entries plus ALL /src/ entries pooled in; src-only entries also form
-      // one extra set on their own.
-      var srcEntries = entriesOf(srcFiles);
-      var sets = [ srcEntries ];
-      for ( var i = 0 ; i < depFiles.length ; i++ ) {
-        sets.push(entriesOf([ depFiles[i] ]).concat(srcEntries));
-      }
-
-      for ( var s = 0 ; s < sets.length ; s++ ) {
-        var byOrder = {};
-        for ( var i = 0 ; i < sets[s].length ; i++ ) {
-          var it = sets[s][i];
-          ( byOrder[it.entry.order] || (byOrder[it.entry.order] = []) ).push(it);
-        }
-        for ( var order in byOrder ) {
-          var group = byOrder[order];
-          if ( group.length < 2 ) continue;
-          var ids = group.map(function(g) { return g.entry.id; }).sort();
-          var key = order + ':' + ids.join(',');
-          if ( seen[key] ) continue;
-          seen[key] = true;
-          findings.push(this.finding_('parser-order', 'warn', group[0].file,
-            this.findLine_(group[0].file, '"' + group[0].entry.id + '"'),
-            "parsers " + ids.map(function(x) { return "'" + x + "'"; }).join(' and ') +
-            " share order " + order + " in the same reachable set — parser selection is ambiguous",
-            'give each parser a distinct order value'));
-        }
-      }
-      return findings;
-    },
-
     function checkPomMembership_() {
       if ( ! this.pomValidator ) return [];
       var r = this.pomValidator.validate();
@@ -278,76 +242,30 @@ foam.CLASS({
       return findings;
     },
 
-    function runBareCatch_(roots) {
-      /**
-       * Flag catch clauses whose block holds zero statements (comment-only
-       * counts as empty — a comment is not a runtime trace). Text-based
-       * brace walk, consistent with the other checks' non-AST style.
-       * File-scoped suppression: a `// foam-lint-ignore: bare-catch` line.
-       */
-      var fs_ = require('fs'), path_ = require('path');
-      var findings = [];
-      var files = [];
-
-      function walk(dir) {
-        var names;
-        try { names = fs_.readdirSync(dir); }
-        catch (e) { require('../logError').logLspError('lint: read dir ' + dir, e); return; }
-        for ( var i = 0 ; i < names.length ; i++ ) {
-          // Same skip rules as findJrlFiles_ / PomValidator.walkSourceTree_ —
-          // keeps vendor/generated trees (vscode extension's node_modules,
-          // compiled out/) out of the scan.
-          if ( names[i].charAt(0) === '.' )                continue;
-          if ( names[i] === 'node_modules' )               continue;
-          if ( names[i] === 'build' || names[i] === 'out' ) continue;
-          var p = path_.join(dir, names[i]);
-          var st;
-          try { st = fs_.lstatSync(p); }
-          catch (e) { require('../logError').logLspError('lint: stat ' + p, e); continue; }
-          if ( st.isSymbolicLink() ) continue;   // foam3 root has `foam3 -> .`
-          if ( st.isDirectory() ) walk(p);
-          else if ( p.endsWith('.js') ) files.push(p);
-        }
+    function scopeToPaths_(findings, paths) {
+      /** Findings a change to `paths` (root-relative or absolute) can have
+          caused: those anchored in one of the paths; every finding of a
+          check whose input file is among them; and a finding about a class
+          whose file is among them (a deleted strategy class leaves its error
+          on strategyReferences.jrl). */
+      var path = require('path');
+      var self = this;
+      var keep = {}, basenames = {};
+      var abs = paths.map(function(p) { return path.resolve(self.root, p); });
+      for ( var i = 0 ; i < abs.length ; i++ ) {
+        keep[abs[i]] = true;
+        basenames[path.basename(abs[i])] = true;
       }
-      for ( var r = 0 ; r < roots.length ; r++ ) walk(roots[r]);
-
-      for ( var f = 0 ; f < files.length ; f++ ) {
-        var content;
-        try { content = fs_.readFileSync(files[f], 'utf8'); }
-        catch (e) { require('../logError').logLspError('lint: read ' + files[f], e); continue; }
-        // The marker counts only as a line of its own. A plain indexOf also
-        // matched the marker quoted in a string or doc comment, so this file,
-        // which names the marker in its fix hint, was never scanned itself.
-        if ( /^\s*\/\/\s*foam-lint-ignore: bare-catch/m.test(content) ) continue;
-
-        var re = /catch\s*(?:\(\s*[\w$]*\s*\))?\s*\{/g;
-        var m;
-        while ( ( m = re.exec(content) ) !== null ) {
-          var i = m.index + m[0].length;   // just past the '{'
-          var depth = 1, hasStatement = false;
-          while ( i < content.length && depth > 0 ) {
-            var ch = content[i];
-            if ( ch === '/' && content[i+1] === '/' ) {
-              while ( i < content.length && content[i] !== '\n' ) i++;
-            } else if ( ch === '/' && content[i+1] === '*' ) {
-              i += 2;
-              while ( i < content.length && !(content[i] === '*' && content[i+1] === '/') ) i++;
-              i++;
-            } else if ( ch === '{' ) depth++;
-            else if ( ch === '}' ) depth--;
-            else if ( ! /\s/.test(ch) ) hasStatement = true;
-            i++;
-          }
-          if ( ! hasStatement ) {
-            // 1-based line, matching findLine_'s contract used by every other check.
-            var line = content.slice(0, m.index).split('\n').length;
-            findings.push(this.finding_('bare-catch', 'error', files[f], line,
-              "empty catch block — error vanishes; broken feature indistinguishable from an empty result",
-              "log it with logLspError(context, err) from tools/lsp/logError.js, or add a `// foam-lint-ignore: bare-catch` line saying why"));
-          }
-        }
+      function touched(check) {
+        return ( self.CHECK_INPUTS[check] || [] ).some(function(b) { return basenames[b]; });
       }
-      return findings;
+      function subjectTouched(classId) {
+        var tail = path.sep + classId.split('.').join(path.sep) + '.js';
+        return abs.some(function(p) { return p.slice(-tail.length) === tail; });
+      }
+      return findings.filter(function(f) {
+        return keep[f.path] || touched(f.check) || ( f.subject_ && subjectTouched(f.subject_) );
+      });
     },
 
     function lint(params) {
@@ -358,21 +276,20 @@ foam.CLASS({
       if ( unknown.length ) {
         throw new Error('unknown check(s): ' + unknown.join(', ') + ' — valid: ' + this.ALL_CHECKS.join(', '));
       }
+
+      // One workspace walk for every journal the selected checks read.
+      var names = [];
+      if ( checks.indexOf('rule-group') !== -1 )   names = names.concat(this.CHECK_INPUTS['rule-group']);
+      if ( checks.indexOf('strategy-ref') !== -1 ) names = names.concat(this.CHECK_INPUTS['strategy-ref']);
+      var files = names.length ? this.findJrlFiles_(names) : {};
+
       var findings = [];
       if ( checks.indexOf('pom-membership') !== -1 ) findings = findings.concat(this.checkPomMembership_());
-      if ( checks.indexOf('rule-group') !== -1 )     findings = findings.concat(this.checkRuleGroups_());
-      if ( checks.indexOf('strategy-ref') !== -1 )   findings = findings.concat(this.checkStrategyRefs_(params.strategyTargets));
-      if ( checks.indexOf('parser-order') !== -1 )   findings = findings.concat(this.checkParserOrder_());
-      if ( checks.indexOf('bare-catch') !== -1 )     findings = findings.concat(
-        this.runBareCatch_([ require('path').join(this.root, 'tools/lsp') ]));
+      if ( checks.indexOf('rule-group') !== -1 )     findings = findings.concat(this.checkRuleGroups_(files));
+      if ( checks.indexOf('strategy-ref') !== -1 )   findings = findings.concat(this.checkStrategyRefs_(params.strategyTargets, files));
 
       if ( params.scope === 'paths' && Array.isArray(params.paths) ) {
-        var path = require('path');
-        var keep = {};
-        for ( var i = 0 ; i < params.paths.length ; i++ ) {
-          keep[path.resolve(this.root, params.paths[i])] = true;
-        }
-        findings = findings.filter(function(f) { return keep[f.path]; });
+        findings = this.scopeToPaths_(findings, params.paths);
       }
       return { findings: findings };
     }

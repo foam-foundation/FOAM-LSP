@@ -202,5 +202,3 @@ test(lintSchema[0] && lintSchema[0].inputSchema.properties.checks !== undefined,
 var canonicalChecks = require('../../lsp/lintChecks');
 test(lintSchema[0] && JSON.stringify(lintSchema[0].inputSchema.properties.checks.items.enum) === JSON.stringify(canonicalChecks),
   'foam_lint schema checks.items.enum matches the canonical lintChecks list exactly');
-test(lintSchema[0] && lintSchema[0].inputSchema.properties.checks.items.enum.indexOf('bare-catch') !== -1,
-  'foam_lint schema checks.items.enum includes bare-catch');

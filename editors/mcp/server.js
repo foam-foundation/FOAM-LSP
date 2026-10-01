@@ -366,7 +366,7 @@ function toolSchemas() {
     },
     {
       name:        'foam_lint',
-      description: 'Registration-completeness lint: classes missing from pom.js, Rules whose ruleGroup is undefined (rule never runs), StrategyReference entries pointing at missing classes / implementors invisible in the Rule-creation UI, duplicate parser order, empty catch blocks under tools/lsp. Run after adding classes, rules, or jrl entries.',
+      description: 'Registration-completeness lint: classes missing from pom.js, Rules whose ruleGroup is undefined (rule never runs), StrategyReference entries pointing at missing classes / implementors invisible in the Rule-creation UI. Run after adding classes, rules, or jrl entries.',
       inputSchema: {
         type: 'object',
         properties: {

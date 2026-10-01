@@ -139,12 +139,12 @@
         "foam.lint.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Show registration-completeness lint findings (missing rule groups, strategy references, parser order, POM membership) as diagnostics."
+          "description": "Show registration-completeness lint findings (missing rule groups, strategy references, POM membership) as diagnostics."
         },
         "foam.lint.checks": {
           "type": "array",
-          "items": { "type": "string", "enum": ["pom-membership", "rule-group", "strategy-ref", "parser-order"] },
-          "default": ["rule-group", "strategy-ref", "parser-order"],
+          "items": { "type": "string", "enum": ["pom-membership", "rule-group", "strategy-ref"] },
+          "default": ["rule-group", "strategy-ref"],
           "description": "Which lint checks to run. 'pom-membership' is off by default: on a mature workspace it reports hundreds of pre-existing findings. Enable it for a debt triage pass."
         },
         "foam.lint.scope": {
