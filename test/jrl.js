@@ -1452,13 +1452,13 @@ try {
   fs.writeFileSync(path.join(wRoot, 'intree', 'c.jrl'), 'p({"class":"z"})\n');
   fs.symlinkSync(path.join(wRoot, 'intree'), path.join(wRoot, 'dup_link'), 'dir');
 
-  var wPrev = process.cwd();
+  var wPrev = globalThis.__foamLSPRoots__.project;
   var wFiles;
   try {
-    process.chdir(wRoot);
+    globalThis.__foamLSPRoots__.project = wRoot;
     wFiles = h.workspaceWalk.call(index);   // the production walk, without the harness' fixture journals
   } finally {
-    process.chdir(wPrev);
+    globalThis.__foamLSPRoots__.project = wPrev;
   }
 
   // The walk returns resolved paths; the fixture root itself may sit

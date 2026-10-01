@@ -39,7 +39,7 @@ if ( require.main === module ) {
 //   node <FOAM-LSP>/test/run.js diagnostics      # just diagnostics
 //   node <FOAM-LSP>/test/run.js hover,completion # comma- or space-separated
 var CATEGORIES = [
-  'config',
+  'config', 'roots',
   'foamIndex', 'grammar', 'utilities', 'completion', 'hover', 'diagnostics',
   'i18n', 'codelens', 'scaffold', 'pom',
   'navigation', 'java', 'jrl', 'editorFeatures', 'typeHierarchy', 'usageIndex',

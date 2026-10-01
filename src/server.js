@@ -139,9 +139,11 @@ function start() {
   }
 
   if ( process.env.FOAM_LSP_EXIT_ON_HEAD_CHANGE ) {
-    // Watch the project repo and the foam3 submodule (same layout assumption
-    // as the rest of the tooling: foam3/ under the project root).
-    var headPaths = [ process.cwd(), path_.join(process.cwd(), 'foam3') ].
+    // Watch the project repo and its foam3; they are one directory when the
+    // project is foam3 itself.
+    var roots = globalThis.__foamLSPRoots__;
+    var headPaths = [ roots.project, roots.foam3 ].
+      filter(function(p, i, a) { return a.indexOf(p) === i; }).
       map(resolveHeadPath).filter(function(p) { return p; });
     var headBaseline = headPaths.map(readHead);
     setInterval(function() {

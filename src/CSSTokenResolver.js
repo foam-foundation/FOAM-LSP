@@ -226,13 +226,14 @@ foam.CLASS({
         return;
       }
 
-      var root = this.findProjectRoot_(path_);
-      if ( ! root ) return;
+      var roots = globalThis.__foamLSPRoots__;
+      if ( ! roots ) return;
+      var root = roots.project;
 
       // Collect theme JRL file paths
       var themeFiles = [
         path_.join(root, 'journals', 'themes.jrl'),
-        path_.join(root, 'foam3', 'src', 'foam', 'core', 'theme', 'themes.jrl')
+        path_.join(roots.foam3, 'src', 'foam', 'core', 'theme', 'themes.jrl')
       ];
 
       // Also check deployment directories
@@ -294,22 +295,6 @@ foam.CLASS({
           }
         }
       }
-    },
-
-    function findProjectRoot_(path_) {
-      /** Walk up from cwd looking for pom.js or foam3/ directory. */
-      var fs = require('fs');
-      var dir = process.cwd();
-      for ( var depth = 0 ; depth < 20 ; depth++ ) {
-        if ( fs.existsSync(path_.join(dir, 'pom.js')) ||
-             fs.existsSync(path_.join(dir, 'foam3')) ) {
-          return dir;
-        }
-        var parent = path_.dirname(dir);
-        if ( parent === dir ) break;
-        dir = parent;
-      }
-      return null;
     },
 
     function resolve_(value, opt_themeId, opt_depth) {

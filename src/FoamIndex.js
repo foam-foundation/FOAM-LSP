@@ -2514,8 +2514,9 @@ foam.CLASS({
           }
         }
       }
-      try { seenReal[fs_.realpathSync(process.cwd())] = true; } catch (e) {}
-      walk(process.cwd());
+      var root = globalThis.__foamLSPRoots__.project;
+      try { seenReal[fs_.realpathSync(root)] = true; } catch (e) {}
+      walk(root);
       return out;
     },
 
@@ -2657,7 +2658,7 @@ foam.CLASS({
        * same row in every target, which is a longer answer, not a better one.
        *
        * Unioned with the directory answer, because the walk is rooted at
-       * process.cwd() and a pom location may sit outside it — walk-only lost
+       * the project root and a pom location may sit outside it — walk-only lost
        * a services.jrl registered that way (the jrl-save wire test keeps its
        * journal in os.tmpdir() and went dark on the first version of this).
        *
