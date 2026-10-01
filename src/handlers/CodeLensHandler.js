@@ -72,7 +72,7 @@ foam.CLASS({
     },
     {
       name: 'featureConfig',
-      documentation: 'Optional feature-toggle config from tools/lsp/FeatureConfig ' +
+      documentation: 'Optional feature-toggle config from src/FeatureConfig ' +
         '(server.js wires it). Plain Node object, not an FObject, so no `class:` ' +
         'here — same convention as DiagnosticsHandler.featureConfig. Null means ' +
         '"every check on", so a handler created bare in tests still offers both lenses.'

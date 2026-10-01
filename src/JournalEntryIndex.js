@@ -168,7 +168,7 @@ foam.CLASS({
       /**
        * Accepts either, because the two callers hold a uri and the ranking
        * works in paths. Local on purpose: every uri/path conversion in
-       * tools/lsp is still hand-rolled, and adding a 53rd hand-rolled site
+       * src/ is still hand-rolled, and adding a 53rd hand-rolled site
        * inside the shared module would be worse than one here. The decode is
        * wrapped because decodeURIComponent throws on a stray '%'.
        */

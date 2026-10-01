@@ -31,7 +31,7 @@
 ;; Usage with eglot (no package needed):
 ;;   (with-eval-after-load 'eglot
 ;;     (add-to-list 'eglot-server-programs
-;;                  '((js-mode js-ts-mode) . ("node" "~/.foam/lsp/bin/lsp-start.js"))))
+;;                  `((js-mode js-ts-mode) . ("node" ,(expand-file-name "~/.foam/lsp/bin/lsp-start.js")))))
 
 ;;; Code:
 

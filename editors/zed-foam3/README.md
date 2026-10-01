@@ -68,7 +68,7 @@ Override the server binary or arguments in your Zed settings
     "foam3-lsp": {
       "binary": {
         "path": "/usr/local/bin/node",
-        "arguments": ["~/.foam/lsp/bin/lsp-start.js"]
+        "arguments": ["/home/you/.foam/lsp/bin/lsp-start.js"]
       }
     }
   }
@@ -77,7 +77,7 @@ Override the server binary or arguments in your Zed settings
 
 Defaults:
 - `path`: `node` from PATH (detected via `worktree.which("node")`)
-- `arguments`: `["~/.foam/lsp/bin/lsp-start.js"]`
+- `arguments`: `["/home/you/.foam/lsp/bin/lsp-start.js"]`
 
 ### Feature Toggles and i18n Settings
 

@@ -71,7 +71,7 @@ foam.CLASS({
     },
     {
       name: 'featureConfig',
-      documentation: 'Optional feature-toggle config from tools/lsp/FeatureConfig (server.js wires it). Plain Node object, not an FObject, so no `class:` here. Null means "every check on" — the handler is created bare in tests and by other tooling, and an absent config must never silence a diagnostic.'
+      documentation: 'Optional feature-toggle config from src/FeatureConfig (server.js wires it). Plain Node object, not an FObject, so no `class:` here. Null means "every check on" — the handler is created bare in tests and by other tooling, and an absent config must never silence a diagnostic.'
     },
     {
       name: 'clientDiagnosticCaps',

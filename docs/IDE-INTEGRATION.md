@@ -168,7 +168,7 @@ Both **eglot** (built-in since Emacs 29) and **lsp-mode** are supported.
 ```elisp
 (with-eval-after-load 'eglot
   (add-to-list 'eglot-server-programs
-               '((js-mode js-ts-mode) . ("node" "~/.foam/lsp/bin/lsp-start.js"))))
+               `((js-mode js-ts-mode) . ("node" ,(expand-file-name "~/.foam/lsp/bin/lsp-start.js")))))
 ```
 
 Then open a FOAM `.js` file and run `M-x eglot`.
@@ -206,7 +206,7 @@ local configs = require('lspconfig.configs')
 if not configs.foam_lsp then
   configs.foam_lsp = {
     default_config = {
-      cmd = { 'node', '~/.foam/lsp/bin/lsp-start.js' },
+      cmd = { 'node', vim.fn.expand('~/.foam/lsp/bin/lsp-start.js') },
       filetypes = { 'javascript' },
       root_dir = lspconfig.util.root_pattern('pom.js', 'foam3'),
       settings = {},
@@ -226,7 +226,7 @@ LSP Settings → Clients:
 {
   "foam-lsp": {
     "enabled": true,
-    "command": ["node", "~/.foam/lsp/bin/lsp-start.js"],
+    "command": ["node", "/home/you/.foam/lsp/bin/lsp-start.js"],
     "selector": "source.js",
     "initializationOptions": {}
   }
@@ -238,7 +238,7 @@ LSP Settings → Clients:
 For any LSP-capable editor, configure a language server with:
 
 - **Command**: `node`
-- **Arguments**: `["~/.foam/lsp/bin/lsp-start.js"]`
+- **Arguments**: `["/home/you/.foam/lsp/bin/lsp-start.js"]` (an absolute path; `~` is not expanded)
 - **Root directory**: the FOAM project root containing `pom.js`
 - **File types**: JavaScript (`.js`), FOAM Journal (`.jrl`)
 - **Transport**: stdio

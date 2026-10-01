@@ -10,7 +10,7 @@
 //
 // Individual category files under test/*.js require this
 // module and read the counters / shared instances from it. The entrypoint
-// testFoamLSP.js reads `counters` at the end to drive its exit code.
+// run.js reads `counters` at the end to drive its exit code.
 
 console.log = function() { console.error.apply(console, arguments); };
 console.warn = function() { console.error.apply(console, arguments); };
@@ -37,7 +37,7 @@ process.on('uncaughtException', function(e) {
   // Installing a listener at all suppresses node's default crash, so an error
   // that escapes to here leaves no trace of its own. Set the exit code before
   // anything else: a throw out of this module's own load never reaches
-  // testFoamLSP.js's summary, so the FAIL line below would otherwise be
+  // run.js's summary, so the FAIL line below would otherwise be
   // printed by a process that still exits 0.
   process.exitCode = 1;
   // ...and, for a boot-time throw only, detach stdin in the same breath.
@@ -71,7 +71,7 @@ pmake.bind(buildlib, "-makers='" + path.join(__dirname, '..', 'LSPMaker') + "' -
 // `await`), and process.exit(0) fires before the awaited work — e.g. a
 // fetch in the i18n category's mock-server tests — gets a chance to
 // finish. Every purely-synchronous category finishes (and calls its own
-// process.exit via testFoamLSP.js) before the loop ever turns, so this
+// process.exit via run.js) before the loop ever turns, so this
 // went unnoticed until an async category existed. Strip the listeners
 // server.js installed so this process's stdin is inert.
 function detachStdin_() {
@@ -144,7 +144,7 @@ var TEST_FILES = [
   'foam3/src/foam/parse/SimpleQueryParser.js'
 ];
 
-// Shared FOAM LSP instances. The original monolithic testFoamLSP.js relied
+// Shared FOAM LSP instances. The original monolithic test file relied
 // on vars like `cache`, `typeTracker`, `analyzer`, `defHandler` being
 // declared in one section and referenced by tests 1000+ lines later. After
 // the category split those tests live in different modules, so every

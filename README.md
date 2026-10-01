@@ -433,8 +433,8 @@ FOAM-LSP/
 │       ├── HandlersTest.js
 │       ├── JavaBlockValidatorTest.js
 │       └── LSPIntegrationTest.js
-├── tests/
-│   └── testFoamLSP.js      # Quick standalone test (123 tests)
+├── test/
+│   └── run.js              # Node test suite entry (categories in test/*.js)
 └── editors/
     ├── vscode/                    # VS Code extension
     │   ├── package.json

@@ -71,7 +71,6 @@ if ( pmake.ABSOLUTE_MAKERS !== true ) {
 var buildlib = require(path_.join(roots.foam3, 'tools', 'buildlib'));
 
 // Override buildlib.error to not exit — keep LSP alive even if POM loading has errors
-var origError = buildlib.error;
 buildlib.error = function() {
   console.error('[LSP] Build error (non-fatal):', Array.prototype.join.call(arguments, ' '));
 };

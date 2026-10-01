@@ -345,7 +345,7 @@ watchdog is 240s (up from a sync-only 80s baseline) to cover it
 1. Add handler method in appropriate handler file
 2. Add capability in `server.js` initialize response
 3. Add dispatch case in `server.js` handleMessage switch
-4. Add test in `testFoamLSP.js`
+4. Add the test to its category in `test/<category>.js`
 5. If VS Code-specific, update `extension.ts` and `package.json`
 
 ### Adding a new diagnostic check

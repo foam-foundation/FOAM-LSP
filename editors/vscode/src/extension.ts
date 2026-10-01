@@ -29,7 +29,7 @@ let client: LanguageClient;
 let statusMenuHandler: (() => Promise<void>) | null = null;
 
 // The package.json setting ids under foam.features.* MUST match
-// FeatureConfig.DEFAULTS (tools/lsp/FeatureConfig.js:23-33) exactly. Reading
+// FeatureConfig.DEFAULTS (src/FeatureConfig.js:23-33) exactly. Reading
 // them back out of the extension's own manifest (rather than hand-maintaining
 // a second literal list here) means there is only one place that can drift
 // from the server, and package.json is it.

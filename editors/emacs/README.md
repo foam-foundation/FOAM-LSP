@@ -12,8 +12,8 @@ Add to your `init.el`:
 ```elisp
 (with-eval-after-load 'eglot
   (add-to-list 'eglot-server-programs
-               '((js-mode js-ts-mode)
-                 . ("node" "~/.foam/lsp/bin/lsp-start.js"))))
+               `((js-mode js-ts-mode)
+                 . ("node" ,(expand-file-name "~/.foam/lsp/bin/lsp-start.js")))))
 ```
 
 Open a FOAM `.js` file and run `M-x eglot`. Done.
@@ -51,7 +51,7 @@ With `use-package`:
 (use-package lsp-foam
   :load-path "~/.emacs.d/site-lisp"
   :custom
-  (lsp-foam-server-command '("node" "~/.foam/lsp/bin/lsp-start.js")))
+  (lsp-foam-server-command (list "node" (expand-file-name "~/.foam/lsp/bin/lsp-start.js"))))
 ```
 
 ## Features
@@ -98,7 +98,7 @@ Both work well. Use eglot for simplicity, lsp-mode if you want the extra UI.
 
 | Variable | Default | Description |
 |---|---|---|
-| `lsp-foam-server-command` | `("node" "~/.foam/lsp/bin/lsp-start.js")` | Server start command |
+| `lsp-foam-server-command` | `node` plus `bin/lsp-start.js` under `$FOAM_LSP_HOME` or `~/.foam/lsp` | Server start command |
 | `lsp-foam-server-args` | `()` | Extra args (e.g., POM path) |
 
 ## Project-Local Activation

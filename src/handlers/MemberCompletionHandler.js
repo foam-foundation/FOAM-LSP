@@ -57,7 +57,7 @@ foam.CLASS({
     },
     {
       name: 'featureConfig',
-      documentation: 'Optional feature-toggle config from tools/lsp/FeatureConfig ' +
+      documentation: 'Optional feature-toggle config from src/FeatureConfig ' +
         '(server.js wires it). Plain Node object, not an FObject, so no `class:` ' +
         'here — same convention as DiagnosticsHandler.featureConfig. Null means ' +
         '"every feature on", so a handler created bare in tests still offers ' +
@@ -417,7 +417,7 @@ foam.CLASS({
        * one would go. The model's span is read off the significant-call scan
        * (its own `foam.X(` to the next one), and the entries inside it off
        * the grammar's `requiresEntry` / `headEntry` harvest — no regex over
-       * model structure (see "Model positions" in tools/lsp/CLAUDE.md).
+       * model structure (see "Model positions" in CLAUDE.md).
        *
        * Returns { requires, heads, callOffset } — `requires` is the entry's
        * span or null, `heads` the package/name/extends/refines/implements

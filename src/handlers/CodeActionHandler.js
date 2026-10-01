@@ -16,7 +16,7 @@ foam.CLASS({
     { name: 'i18nHandler' },
     {
       name: 'featureConfig',
-      documentation: 'Optional feature-toggle config from tools/lsp/FeatureConfig (server.js wires it). Null means "every action offered" — an absent config must never remove an action.'
+      documentation: 'Optional feature-toggle config from src/FeatureConfig (server.js wires it). Null means "every action offered" — an absent config must never remove an action.'
     }
   ],
 

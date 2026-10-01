@@ -683,7 +683,7 @@ var bodyDieMock = http.createServer(function(req, res) {
 });
 
 // The harness runs categories synchronously, so this category exports its
-// async work as `done` — see testFoamLSP.js, which Promise.all()s every
+// async work as `done` — see run.js, which Promise.all()s every
 // category's `done` (undefined for the sync ones) before printing SUMMARY.
 // try/finally guarantees every mock server is closed even if an assertion
 // throws (it shouldn't — test() records rather than throws — but detect()/
