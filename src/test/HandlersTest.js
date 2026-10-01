@@ -43,7 +43,8 @@ foam.CLASS({
       var ranges2 = handler.handle('function foo() {}');
       x.test(ranges2.length === 0, 'FoldingRange: returns empty for plain JS');
 
-      var text3 = "foam.CLASS({\n  requires: ['foo'],\n  methods: [\n    function a() {}\n  ]\n});";
+      // Only a block spanning lines folds, so requires: spans two here.
+      var text3 = "foam.CLASS({\n  requires: [\n    'foo'\n  ],\n  methods: [\n    function a() {}\n  ]\n});";
       var ranges3 = handler.handle(text3);
       x.test(ranges3.length >= 2, 'FoldingRange: multiple folds for multiple array axioms');
     },
@@ -101,7 +102,7 @@ foam.CLASS({
 
       // Respects default cap.
       var def = handler.handle('');
-      x.test(def.length <= 100, 'WorkspaceSymbol: respects default 100 cap');
+      x.test(def.length <= handler.DEFAULT_LIMIT, 'WorkspaceSymbol: respects the default cap (' + handler.DEFAULT_LIMIT + ')');
     },
 
     // ========== CompletionHandler ==========
@@ -236,19 +237,23 @@ foam.CLASS({
         'Symbol: should have class symbol'
       );
 
+      // Members are the class symbol's children (hierarchical DocumentSymbol)
+      var members = [];
+      result.forEach(function(s) { members = members.concat(s.children || []); });
+
       // Check for property symbols
       x.test(
-        result.some(function(s) { return s.name === 'firstName'; }),
+        members.some(function(s) { return s.name === 'firstName'; }),
         'Symbol: should have firstName property symbol'
       );
       x.test(
-        result.some(function(s) { return s.name === 'lastName'; }),
+        members.some(function(s) { return s.name === 'lastName'; }),
         'Symbol: should have lastName property symbol'
       );
 
       // Check for method symbols
       x.test(
-        result.some(function(s) { return s.name === 'greet' && s.kind === 6; }),
+        members.some(function(s) { return s.name === 'greet' && s.kind === 6; }),
         'Symbol: should have greet method symbol'
       );
 

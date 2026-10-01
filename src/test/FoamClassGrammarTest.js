@@ -22,32 +22,16 @@ foam.CLASS({
     },
 
     async function collectSuggestions(grammar, input, cursorOffset) {
-      /** Parse input and collect suggestions at cursorOffset. */
+      /** Suggestions at cursorOffset, gathered the way CompletionHandler does:
+          a CursorSentinel at the cursor, then grammar.collectSuggestionsAt. */
+      var before   = input.substring(0, cursorOffset).split('\n');
+      var position = { line: before.length - 1, character: before[before.length - 1].length };
+      var ins      = foam.parse.lsp.CursorSentinel.create().insertAt(input, position);
       var suggestions = {};
-      var maxPos = 0;
-
-      var apply = function(p, g) {
-        if ( this.pos > maxPos ) {
-          suggestions = {};
-          maxPos = this.pos;
-        }
-        if ( this.pos === cursorOffset && p.suggest ) {
-          var s = p.suggest();
-          if ( s ) suggestions[s.text || s.label] = s;
-        }
-        // Also collect suggestions at maxPos (end of successful parse)
-        if ( this.pos === maxPos && p.suggest ) {
-          var s = p.suggest();
-          if ( s ) suggestions[s.text || s.label] = s;
-        }
-        return p.parse(this, g);
-      };
-
-      var str = input + String.fromCharCode(26); // EOF
-      var ps = foam.parse.StringPStream.create({ str: str, apply: apply });
-      grammar.parse(ps);
-
-      return { suggestions: suggestions, maxPos: maxPos };
+      grammar.collectSuggestionsAt(ins.text, ins.offset).forEach(function(s) {
+        suggestions[s.text || s.label] = s;
+      });
+      return { suggestions: suggestions };
     },
 
     async function testPropertyTypeSuggestions(x, grammar) {

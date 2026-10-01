@@ -19,3 +19,5 @@ jobs:
       - run: node FOAM-LSP/test/resolveFoam.js
       - run: node ../FOAM-LSP/test/run.js
         working-directory: foam3
+      - run: node ../FOAM-LSP/test/run.js foamTests
+        working-directory: foam3

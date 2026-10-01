@@ -50,9 +50,19 @@ foam.CLASS({
       var s1 = symbolHandler.handle(testFile);
       x.test(s1.length >= 3, 'Integration: symbols include class + properties + methods');
 
-      // Member completion: this.
+      // Member completion: this. lists members of a class in the registry,
+      // which the server's boot fills from the workspace; register it here.
+      foam.CLASS({
+        package: 'test.integration',
+        name: 'TestModel',
+        extends: 'foam.lang.FObject',
+        properties: [ { class: 'String', name: 'firstName' }, 'lastName' ],
+        methods: [ function greet() { return 'hello'; } ]
+      });
       var m1 = memberHandler.handle(testFile, { line: 10, character: 11 });
-      x.test(m1.items.length > 0, 'Integration: member completion returns items');
+      var labels = m1.items.map(function(i) { return i.label; });
+      x.test(labels.indexOf('firstName') !== -1 && labels.indexOf('greet') !== -1,
+        'Integration: member completion lists the class properties and methods');
 
       // Semantic tokens: scope-aware
       var semanticHandler = foam.parse.lsp.handlers.SemanticTokenHandler.create({ index: index, cache: foam.parse.lsp.FileModelCache.create() });
