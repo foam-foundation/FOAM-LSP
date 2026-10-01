@@ -218,8 +218,8 @@ test(viaRules.findings.some(function(f) { return f.path.indexOf('gamma') !== -1;
   'touching a rules.jrl keeps every rule-group finding, even ones in other rules.jrl files');
 
 var viaPom = full.lint({ scope: 'paths', paths: [ 'src/com/example/pom.js' ] });
-test(viaPom.findings.length === 2 && viaPom.findings.every(function(f) { return f.check === 'pom-membership'; }),
-  'touching a pom.js keeps every pom-membership finding');
+test(! viaPom.findings.some(function(f) { return f.path === orphanPath; }),
+  'touching a pom.js keeps only findings in that pom.js, not every orphan in the tree');
 
 // The rename: the diff holds only ruleGroups.jrl, the error lands on the
 // rules.jrl that still names the old id.

@@ -383,11 +383,14 @@ foam/lint  { scope?: 'all' | 'paths', paths?: string[], checks?: string[],
   can have caused — pass `git diff --name-only <ref>` output for a
   diff-scoped run; the LSP itself never runs git. A finding is kept when it
   sits in one of the paths, when the paths include a file its check reads
-  (`pom.js` for `pom-membership`; `rules.jrl` or `ruleGroups.jrl` for
-  `rule-group`; `strategyReferences.jrl` for `strategy-ref`), or when it is
+  (`rules.jrl` or `ruleGroups.jrl` for `rule-group`;
+  `strategyReferences.jrl` for `strategy-ref`), or when it is
   about a strategy class whose file is among the paths. Renaming a group in
   `ruleGroups.jrl` thus reports every `rules.jrl` that still names the old id,
   and deleting a strategy class reports its now-dangling entry.
+  `pom-membership` keeps only findings in the paths: every `pom.js` feeds
+  every orphan finding, so adding a class with its entry reports nothing
+  about other orphans; an entry removed from a pom shows on a full run.
 - `checks` restricts which of the three checks run (default: all three).
   Unrecognized check names throw rather than silently returning clean.
 - `strategyTargets` extends the `strategy-ref` implementor scan beyond the

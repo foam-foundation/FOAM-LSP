@@ -31,8 +31,10 @@ foam.CLASS({
     // never touched: rename a group in ruleGroups.jrl and the error lands on
     // the rules.jrl that names it. So a 'paths' scope keeps every finding of
     // a check once one of that check's inputs is among the paths.
+    // pom-membership has no entry: every pom.js feeds every orphan finding,
+    // so adding a class with its pom entry would report all orphans in the
+    // tree. Its findings stay limited to the touched files.
     CHECK_INPUTS: {
-      'pom-membership': [ 'pom.js' ],
       'rule-group':     [ 'rules.jrl', 'ruleGroups.jrl' ],
       'strategy-ref':   [ 'strategyReferences.jrl' ]
     }
