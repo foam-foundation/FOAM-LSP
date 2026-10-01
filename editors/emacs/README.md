@@ -13,7 +13,7 @@ Add to your `init.el`:
 (with-eval-after-load 'eglot
   (add-to-list 'eglot-server-programs
                '((js-mode js-ts-mode)
-                 . ("node" "/path/to/foam3/tools/lsp-start.js"))))
+                 . ("node" "~/.foam/lsp/bin/lsp-start.js"))))
 ```
 
 Open a FOAM `.js` file and run `M-x eglot`. Done.
@@ -32,7 +32,7 @@ To auto-start in FOAM projects:
 Run the install script:
 
 ```bash
-cd foam3/tools/lsp/editors/emacs
+cd <FOAM-LSP>/editors/emacs
 ./install.sh
 ```
 
@@ -51,7 +51,7 @@ With `use-package`:
 (use-package lsp-foam
   :load-path "~/.emacs.d/site-lisp"
   :custom
-  (lsp-foam-server-command '("node" "/path/to/foam3/tools/lsp-start.js")))
+  (lsp-foam-server-command '("node" "~/.foam/lsp/bin/lsp-start.js")))
 ```
 
 ## Features
@@ -76,7 +76,7 @@ The FOAM LSP server communicates over stdio using JSON-RPC 2.0. Emacs spawns
 the server as a child process:
 
 ```
-node foam3/tools/lsp-start.js [pom-path]
+node ~/.foam/lsp/bin/lsp-start.js [pom-path]
 ```
 
 The server boots the full FOAM runtime (~10-15 seconds), loading all model
@@ -98,7 +98,7 @@ Both work well. Use eglot for simplicity, lsp-mode if you want the extra UI.
 
 | Variable | Default | Description |
 |---|---|---|
-| `lsp-foam-server-command` | `("node" "foam3/tools/lsp-start.js")` | Server start command |
+| `lsp-foam-server-command` | `("node" "~/.foam/lsp/bin/lsp-start.js")` | Server start command |
 | `lsp-foam-server-args` | `()` | Extra args (e.g., POM path) |
 
 ## Project-Local Activation

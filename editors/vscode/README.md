@@ -61,7 +61,7 @@ Recompiles on every TypeScript change.
 
 ### Debug in VS Code
 
-1. Open the `tools/lsp/editors/vscode/` folder in VS Code
+1. Open the `editors/vscode/` folder in VS Code
 2. Press **F5** (or Run → Start Debugging)
 3. A new VS Code window opens with the extension loaded
 4. Open a FOAM project in that window to test
@@ -71,7 +71,7 @@ The launch configuration is in `.vscode/launch.json`.
 ### Project Structure
 
 ```
-tools/lsp/editors/vscode/
+editors/vscode/
   src/
     extension.ts           # LSP client, server startup, status bar
     FoamTreeProvider.ts    # Sidebar tree view (analysis, files, patterns, flags)
@@ -91,7 +91,7 @@ tools/lsp/editors/vscode/
 The extension spawns the FOAM LSP server as a child process:
 
 ```
-node foam3/tools/lsp-start.js <pom-path>
+node ~/.foam/lsp/bin/lsp-start.js <pom-path>
 ```
 
 Communication uses JSON-RPC 2.0 over stdio. The server boots the full FOAM

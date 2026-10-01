@@ -2,25 +2,49 @@
 
 A runtime-aware Language Server for FOAM3 that provides autocomplete, hover, go-to-definition, diagnostics, workspace analysis, and Java code validation for `foam.CLASS`, `foam.ENUM`, and `foam.INTERFACE` definitions.
 
+## Install
+
+From any FOAM project (foam3 itself or an app that carries foam3):
+
+    ./build.sh lsp-install            # pick editors interactively
+    ./build.sh lsp-install:vscode     # or one editor / MCP agent
+
+This clones FOAM-LSP into `~/.foam/lsp` (set `FOAM_LSP_HOME` to change it) and
+registers it. Every build fast-forwards the clone at most once a day. Turn that
+off with `FOAM_LSP_AUTOUPDATE=0` or `./build.sh --lsp-auto-update:false`;
+update by hand with `./build.sh lsp-update`.
+
+The LSP loads the project's own foam3 (`<project>/foam3`, or the project when it
+is foam3). Set `FOAM3_ROOT` to point it elsewhere.
+
+## Develop
+
+    git clone git@github.com:foam-foundation/FOAM-LSP.git
+    cd <foam3 checkout> && node <FOAM-LSP>/test/run.js
+
+Point an editor at a development checkout with VS Code `foam.lspPath`, Zed
+`lsp.foam3-lsp.binary.arguments`, or Emacs `lsp-foam-server-command`. A clone on
+a branch other than main, or with local changes, is never auto-updated.
+
 ## Quick Start
 
 ```bash
-# Run from your FOAM project root (e.g., ptv3/):
-node foam3/tools/lsp-start.js
+# Run from your FOAM project root (the dir holding pom.js):
+node ~/.foam/lsp/bin/lsp-start.js
 
 # Run tests:
-cd <your-project> && node foam3/tools/tests/testFoamLSP.js
+cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 
 # VS Code debug mode:
-cd foam3/tools/lsp/editors/vscode && npm install && npx tsc -p ./
-# Open foam3/tools/lsp/editors/vscode/ in VS Code, press F5
+cd <FOAM-LSP>/editors/vscode && npm install && npx tsc -p ./
+# Open editors/vscode/ in VS Code, press F5
 ```
 
 ## Architecture
 
 ```
 VS Code Extension (TypeScript)              FOAM LSP Server (Node.js)
-tools/lsp/editors/vscode/                    tools/lsp/
+editors/vscode/                    src/
 
   extension.ts ──stdio──►  server.js (JSON-RPC main loop)
   FoamTreeProvider.ts                │
@@ -50,7 +74,7 @@ tools/lsp/editors/vscode/                    tools/lsp/
 
 ### Key Components
 
-#### FileModelCache (`tools/lsp/FileModelCache.js`)
+#### FileModelCache (`src/FileModelCache.js`)
 Eval-intercept cache that captures FOAM model objects directly. Same pattern as `ModelFileDAO.js` — executes file text with overridden `foam.CLASS/ENUM/INTERFACE` to capture the raw JS objects passed to each call. This gives handlers direct access to all model fields (`extends`, `requires`, `properties`, `javaImports`, etc.) without any regex parsing.
 
 - **`getModels(uri, text)`**: returns cached array of model objects, or parses fresh
@@ -58,7 +82,7 @@ Eval-intercept cache that captures FOAM model objects directly. Same pattern as 
 - **`parseFileModels(text)`**: eval-intercept extraction, with bracket-matching fallback for SyntaxError
 - **Caching**: per-URI, invalidated on file change
 
-#### FoamIndex (`tools/lsp/FoamIndex.js`)
+#### FoamIndex (`src/FoamIndex.js`)
 The query layer over the FOAM runtime. All handlers go through FoamIndex, never touch `foam.*` directly.
 
 - **Class discovery**: `getAllClassIds()` uses `foam.__context__.__cache__` (includes bootstrap classes)
@@ -67,7 +91,7 @@ The query layer over the FOAM runtime. All handlers go through FoamIndex, never 
 - **Java mappings**: `getJavaImportMappings()`, `getPropertyJavaType()`
 - **Documentation**: `getClassDoc()`, `getPropertyDoc()`
 
-#### FoamClassGrammar (`tools/lsp/FoamClassGrammar.js`)
+#### FoamClassGrammar (`src/FoamClassGrammar.js`)
 FOAM grammar that parses entire `.js` files using a skip-and-match pattern. Used only for cursor-position-aware completion suggestions (`sug()`).
 
 ```
@@ -80,12 +104,12 @@ Dynamic suggestions built from FOAM registry:
 - Property types: all subclasses of `foam.lang.Property` → `sug()` entries
 - Class names: all known class IDs → `sug()` entries
 
-#### CursorAnalyzer (`tools/lsp/CursorAnalyzer.js`)
+#### CursorAnalyzer (`src/CursorAnalyzer.js`)
 Shared text/position utilities used by handlers. Provides fallback regex parsing for incomplete files where eval fails.
 
 10 methods: `offsetToPosition`, `positionToOffset`, `getDottedWordAtPosition`, `getSegmentAtPosition`, `resolveClassId`, `parseRequires`, `parseImports`, `resolveShortName`, `findCreateContext`, `getMethodSignature`
 
-#### TypeTracker (`tools/lsp/TypeTracker.js`)
+#### TypeTracker (`src/TypeTracker.js`)
 Resolves variable types from `.create()` assignments. Scans backward from cursor position to find `var x = this.Foo.create()` patterns and resolves `Foo` through the requires map.
 
 - **`getVariableTypes(text, position, model, index)`**: returns `{ varName: classId }` for variables in scope at the cursor position
@@ -332,7 +356,7 @@ restart the LSP (kill the MCP server or restart the agent) to re-probe.
 ### Installation
 
 ```bash
-cd foam3/tools/lsp/editors/vscode
+cd <FOAM-LSP>/editors/vscode
 npm install
 npx tsc -p ./
 
@@ -345,7 +369,7 @@ npx tsc -p ./
 
 ### Quick Test (seconds, no build)
 ```bash
-cd <your-project> && node foam3/tools/tests/testFoamLSP.js
+cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 ```
 
 123 tests covering:
@@ -367,17 +391,21 @@ cd <your-project> && node foam3/tools/tests/testFoamLSP.js
 - ReferencesHandler (subclasses, implementors)
 
 ### FOAM Test Framework
+The `foam.parse.lsp.test.*` JSTests in `src/test/` run as an opt-in category
+(they load test-flagged poms into the shared registry, so they stay out of the
+default run):
 ```bash
-./build.sh -W9090 -Jlsp --flags:test client-tests:FoamIndexTest,FoamClassGrammarTest,HandlersTest,JavaBlockValidatorTest,LSPIntegrationTest
+cd <foam3 or app root> && node <FOAM-LSP>/test/run.js foamTests
 ```
 
 ## File Structure
 
 ```
-foam3/tools/
+FOAM-LSP/
 ├── LSPMaker.js                    # Build Maker — hooks into pmake
-├── lsp-start.js                   # Entry point for LSP server
-├── lsp/
+├── bin/lsp-start.js               # Entry point for LSP server
+├── lib/resolveFoam.js             # Finds the project's foam3
+├── src/
 │   ├── pom.js
 │   ├── FileModelCache.js          # Eval-intercept model extraction
 │   ├── FoamIndex.js               # Class registry queries

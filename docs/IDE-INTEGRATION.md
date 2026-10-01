@@ -49,7 +49,7 @@ Content-Length: 123\r\n
 
 ### Boot Sequence
 
-1. The editor spawns: `node foam3/tools/lsp-start.js [pom-path]`
+1. The editor spawns: `node ~/.foam/lsp/bin/lsp-start.js [pom-path]`
 2. `lsp-start.js` redirects console.log to stderr, sets up FOAM buildlib globals
 3. `pmake` loads the FOAM runtime, walks all POM files, loads all model definitions
 4. `LSPMaker.js` builds a file index (4300+ classes) and starts the JSON-RPC loop
@@ -63,8 +63,8 @@ If omitted, the server looks for `pom.js` in the current working directory.
 Example:
 
 ```bash
-node foam3/tools/lsp-start.js pom                    # relative to cwd
-node foam3/tools/lsp-start.js /path/to/my-project/pom   # absolute path
+node ~/.foam/lsp/bin/lsp-start.js pom                    # relative to cwd
+node ~/.foam/lsp/bin/lsp-start.js /path/to/my-project/pom   # absolute path
 ```
 
 ## Capabilities
@@ -103,7 +103,7 @@ The FOAM LSP server announces these capabilities to the editor:
 
 Any editor with LSP support can connect to the FOAM server. The general pattern:
 
-1. **Command**: `node foam3/tools/lsp-start.js`
+1. **Command**: `node ~/.foam/lsp/bin/lsp-start.js`
 2. **Arguments**: optional POM path (defaults to `pom` in cwd)
 3. **Working directory**: your FOAM project root (the directory containing `pom.js`)
 4. **Transport**: stdio (the default for most LSP clients)
@@ -118,15 +118,15 @@ The fastest way to set up any editor:
 
 ```bash
 # Auto-detect editors and prompt
-foam3/tools/lsp/install.sh
+~/.foam/lsp/install.sh
 
 # Install for a specific editor
-foam3/tools/lsp/install.sh vscode
-foam3/tools/lsp/install.sh emacs
-foam3/tools/lsp/install.sh zed
+~/.foam/lsp/install.sh vscode
+~/.foam/lsp/install.sh emacs
+~/.foam/lsp/install.sh zed
 
 # Install for all detected editors
-foam3/tools/lsp/install.sh all
+~/.foam/lsp/install.sh all
 
 # Via the build system
 ./build.sh lsp-install
@@ -137,27 +137,27 @@ foam3/tools/lsp/install.sh all
 
 ### VS Code
 
-The dedicated VS Code extension lives at `foam3/tools/lsp/editors/vscode/`. It provides the
+The dedicated VS Code extension lives at `editors/vscode/`. It provides the
 LSP client plus a sidebar panel for workspace analysis and flag management.
 
 **Install locally:**
 
 ```bash
-cd foam3/tools/lsp/editors/vscode
+cd <FOAM-LSP>/editors/vscode
 ./install.sh
 ```
 
 Or manually:
 
 ```bash
-cd foam3/tools/lsp/editors/vscode
+cd <FOAM-LSP>/editors/vscode
 npm install
 npm run compile
 npm run package
 code --install-extension foam-lsp-*.vsix
 ```
 
-See `foam3/tools/lsp/editors/vscode/README.md` for development and debugging instructions.
+See `editors/vscode/README.md` for development and debugging instructions.
 
 ### Emacs
 
@@ -168,7 +168,7 @@ Both **eglot** (built-in since Emacs 29) and **lsp-mode** are supported.
 ```elisp
 (with-eval-after-load 'eglot
   (add-to-list 'eglot-server-programs
-               '((js-mode js-ts-mode) . ("node" "/path/to/foam3/tools/lsp-start.js"))))
+               '((js-mode js-ts-mode) . ("node" "~/.foam/lsp/bin/lsp-start.js"))))
 ```
 
 Then open a FOAM `.js` file and run `M-x eglot`.
@@ -176,11 +176,11 @@ Then open a FOAM `.js` file and run `M-x eglot`.
 **lsp-mode** — install the `lsp-foam.el` client:
 
 ```bash
-cd foam3/tools/lsp/editors/emacs
+cd <FOAM-LSP>/editors/emacs
 ./install.sh
 ```
 
-See `foam3/tools/lsp/editors/emacs/README.md` for the full setup guide.
+See `editors/emacs/README.md` for the full setup guide.
 
 ### Zed
 
@@ -189,11 +189,11 @@ Install the FOAM3 extension as a dev extension:
 1. Open Zed
 2. Open Command Palette → "zed: extensions"
 3. Click "Install Dev Extension"
-4. Select the `foam3/tools/lsp/editors/zed-foam3/` directory
+4. Select the `editors/zed-foam3/` directory
 
 Zed compiles the extension automatically. Requires Rust installed via `rustup`.
 
-See `foam3/tools/lsp/editors/zed-foam3/README.md` for details.
+See `editors/zed-foam3/README.md` for details.
 
 ### Neovim
 
@@ -206,7 +206,7 @@ local configs = require('lspconfig.configs')
 if not configs.foam_lsp then
   configs.foam_lsp = {
     default_config = {
-      cmd = { 'node', 'foam3/tools/lsp-start.js' },
+      cmd = { 'node', '~/.foam/lsp/bin/lsp-start.js' },
       filetypes = { 'javascript' },
       root_dir = lspconfig.util.root_pattern('pom.js', 'foam3'),
       settings = {},
@@ -226,7 +226,7 @@ LSP Settings → Clients:
 {
   "foam-lsp": {
     "enabled": true,
-    "command": ["node", "foam3/tools/lsp-start.js"],
+    "command": ["node", "~/.foam/lsp/bin/lsp-start.js"],
     "selector": "source.js",
     "initializationOptions": {}
   }
@@ -238,7 +238,7 @@ LSP Settings → Clients:
 For any LSP-capable editor, configure a language server with:
 
 - **Command**: `node`
-- **Arguments**: `["foam3/tools/lsp-start.js"]`
+- **Arguments**: `["~/.foam/lsp/bin/lsp-start.js"]`
 - **Root directory**: the FOAM project root containing `pom.js`
 - **File types**: JavaScript (`.js`), FOAM Journal (`.jrl`)
 - **Transport**: stdio
@@ -248,14 +248,14 @@ For any LSP-capable editor, configure a language server with:
 ### Server does not start
 
 - Verify Node.js is installed: `node --version` (requires Node 18+)
-- Verify the path: `ls foam3/tools/lsp-start.js`
+- Verify the path: `ls ~/.foam/lsp/bin/lsp-start.js`
 - Check `pom.js` exists in your project root
-- Run manually to see errors: `node foam3/tools/lsp-start.js 2>/tmp/foam-lsp.log`
+- Run manually to see errors: `node ~/.foam/lsp/bin/lsp-start.js 2>/tmp/foam-lsp.log`
 
 ### Server starts but no completions
 
 - Wait for boot to complete (~10-15 seconds). Look for the `initialize` response.
-- Check stderr for errors: `node foam3/tools/lsp-start.js 2>&1 | head -50`
+- Check stderr for errors: `node ~/.foam/lsp/bin/lsp-start.js 2>&1 | head -50`
 - Verify your file contains `foam.CLASS(`, `foam.ENUM(`, or `foam.INTERFACE(`
 
 ### Diagnostics not showing
@@ -275,7 +275,7 @@ Quick standalone test (no build required):
 
 ```bash
 cd <your-project>
-node foam3/tools/tests/testFoamLSP.js
+node <FOAM-LSP>/test/run.js
 ```
 
 This runs 200+ tests covering all handlers, the grammar, file model cache, and

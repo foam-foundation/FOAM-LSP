@@ -11,7 +11,7 @@ FOAM Language Server.
 2. Open Command Palette (`Cmd+Shift+P`)
 3. Type `zed: extensions`
 4. Click **Install Dev Extension**
-5. Select the `foam3/tools/lsp/editors/zed-foam3/` directory
+5. Select the `editors/zed-foam3/` directory
 
 Zed compiles the Rust code to WASM automatically. The extension activates
 for JavaScript files in any workspace.
@@ -19,7 +19,7 @@ for JavaScript files in any workspace.
 Or run the guided install:
 
 ```bash
-cd foam3/tools/lsp/editors/zed-foam3
+cd <FOAM-LSP>/editors/zed-foam3
 ./install.sh
 ```
 
@@ -51,7 +51,7 @@ The extension registers the FOAM LSP server with Zed. When you open a
 JavaScript file, Zed spawns:
 
 ```
-node foam3/tools/lsp-start.js
+node ~/.foam/lsp/bin/lsp-start.js
 ```
 
 The server boots the full FOAM runtime (~10-15 seconds), then serves
@@ -68,7 +68,7 @@ Override the server binary or arguments in your Zed settings
     "foam3-lsp": {
       "binary": {
         "path": "/usr/local/bin/node",
-        "arguments": ["foam3/tools/lsp-start.js"]
+        "arguments": ["~/.foam/lsp/bin/lsp-start.js"]
       }
     }
   }
@@ -77,7 +77,7 @@ Override the server binary or arguments in your Zed settings
 
 Defaults:
 - `path`: `node` from PATH (detected via `worktree.which("node")`)
-- `arguments`: `["foam3/tools/lsp-start.js"]`
+- `arguments`: `["~/.foam/lsp/bin/lsp-start.js"]`
 
 ### Feature Toggles and i18n Settings
 
@@ -106,7 +106,7 @@ everything under a `foam` key so it lands where `FeatureConfig` expects it
 ```
 
 `features` keys are booleans matching `FeatureConfig.DEFAULTS`
-(`tools/lsp/FeatureConfig.js`) — e.g. `hover`, `completion`, `codeLens.i18n`,
+(`src/FeatureConfig.js`) — e.g. `hover`, `completion`, `codeLens.i18n`,
 `codeLens.hierarchy`. `i18n` keys (`languages`, `sourceLanguage`, `endpoint`,
 `model`) configure the translation provider. This layer wins over a
 `foam-lsp.json` at the workspace root, which in turn wins over the built-in
@@ -246,5 +246,5 @@ Open a FOAM project in Zed and verify:
 
 ### Server path not found
 
-- The default `foam3/tools/lsp-start.js` is relative to the workspace root
+- The default is `$FOAM_LSP_HOME/bin/lsp-start.js`, or `~/.foam/lsp/bin/lsp-start.js`
 - If your project structure differs, override via Zed settings (see Configuration)

@@ -21,14 +21,14 @@ checkout, prefix the agent commands with `FOAM_PROJECT_ROOT=$PWD`.
 
 The VS Code extension activates in any workspace that contains `pom.js`. For
 Emacs, add the snippet you picked to `init.el` and restart. For Zed, pick the
-`foam3/tools/lsp/editors/zed-foam3` folder when Zed asks for the extension
+`editors/zed-foam3` folder when Zed asks for the extension
 directory.
 
 Any other LSP client works too. Point it at this command, with the project
 root as the working directory and stdio as the transport:
 
 ```bash
-node foam3/tools/lsp-start.js
+node ~/.foam/lsp/bin/lsp-start.js
 ```
 
 ## Agent setup (MCP)
@@ -61,7 +61,7 @@ To check the server itself without an editor, run one test category (about
 half a minute; the full suite takes two to three minutes):
 
 ```bash
-node foam3/tools/tests/testFoamLSP.js hover
+node <FOAM-LSP>/test/run.js hover
 ```
 
 A healthy run ends with a `SUMMARY` section and `N passed, 0 failed`. A run
@@ -84,9 +84,9 @@ The file is read once at start, so restart the server after editing it.
 ## When something is off
 
 - **Nothing happens in the editor.** Open the **FOAM Language Server** output
-  channel. `Not a FOAM project (lsp-start.js not found)` means the workspace
-  root, or a folder directly under it, has no `foam3/tools/lsp-start.js`.
-  Initialise the submodule or open the project root.
+  channel. `FOAM LSP not installed at <path>` means there is no clone there: run
+  `./build.sh lsp-install:vscode`. `Not a FOAM project (pom.js not found)` means
+  neither the workspace root nor a folder directly under it holds `pom.js`.
 - **Completions never arrive, or the agent tools time out.** The boot may have
   failed. In VS Code, open the **FOAM Language Server** output channel. In
   Claude Code, run `/mcp` and read the `[foam-lsp]` lines. A broken `pom.js`
@@ -102,6 +102,6 @@ The file is read once at start, so restart the server after editing it.
 
 ## More
 
-- `foam3/tools/lsp/README.md`: features, architecture, i18n translation setup
-- `foam3/tools/lsp/docs/IDE-INTEGRATION.md`: wiring any LSP client by hand
-- `foam3/tools/lsp/editors/mcp/README.md`: the full MCP tool table
+- `README.md`: features, architecture, i18n translation setup
+- `docs/IDE-INTEGRATION.md`: wiring any LSP client by hand
+- `editors/mcp/README.md`: the full MCP tool table

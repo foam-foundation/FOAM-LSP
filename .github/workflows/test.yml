@@ -1,0 +1,21 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        foam3: [development]
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: FOAM-LSP }
+      - uses: actions/checkout@v4
+        with: { repository: foam-foundation/foam3, ref: '${{ matrix.foam3 }}', path: foam3 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+        working-directory: foam3
+      - run: node FOAM-LSP/test/resolveFoam.js
+      - run: node ../FOAM-LSP/test/run.js
+        working-directory: foam3

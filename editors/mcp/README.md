@@ -19,7 +19,7 @@ agent, mirroring the per-editor installers.
 ./install.sh --dry codex  # preview without writing
 ```
 
-Or via the parent installer: `foam3/tools/lsp/install.sh codex` (and the
+Or via the parent installer: `~/.foam/lsp/install.sh codex` (and the
 `claude-code` name still works there).
 
 Each installer writes (or merges into) the agent's project-scoped config
@@ -96,7 +96,7 @@ without one, the coding agent itself becomes the translation provider via the
 
 ```
 MCP agent ──NDJSON──► server.js ──Content-Length JSON-RPC──► lsp-start.js
- (MCP stdio)          (this dir)                             (foam3/tools)
+ (MCP stdio)          (this dir)                             (bin/)
 ```
 
 - `server.js` — pure Node, zero dependencies. Speaks MCP on its own

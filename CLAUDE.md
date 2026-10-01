@@ -323,21 +323,21 @@ so a collector added later cannot reintroduce duplicate rows.
 ## Testing
 ```bash
 # Quick test (all categories):
-cd <project> && node foam3/tools/tests/testFoamLSP.js
+cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 
-# One category (see tools/tests/testFoamLSP.js CATEGORIES for the full list —
+# One category (see test/run.js CATEGORIES for the full list —
 # foamIndex, grammar, utilities, completion, hover, diagnostics, i18n,
 # navigation, java, jrl, editorFeatures, typeHierarchy, usageIndex,
 # callHierarchy, pomValidation, pomNavigation, mcp):
-node foam3/tools/tests/testFoamLSP.js i18n
+node <FOAM-LSP>/test/run.js i18n
 
-# FOAM framework tests:
-./build.sh -W9090 -Jlsp --flags:test client-tests:FoamIndexTest
+# FOAM-model tests (src/test, opt-in, run alone):
+node <FOAM-LSP>/test/run.js foamTests
 ```
 The `i18n` category is async (mock HTTP providers, timeouts, TTL waits) —
-`testFoamLSP.js` awaits its exported `done` promise before tallying, and the
+`test/run.js` awaits its exported `done` promise before tallying, and the
 watchdog is 240s (up from a sync-only 80s baseline) to cover it
-(`tools/tests/testFoamLSP.js:16-31`).
+(`test/run.js:16-31`).
 
 ## Common Patterns for Modifications
 
