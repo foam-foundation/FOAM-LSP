@@ -72,6 +72,22 @@ test(
 );
 
 
+var caretQfSrc =
+  "foam.CLASS({\n  package: 'test',\n  name: 'CaretQf',\n" +
+  "  css: `\n    ^a { color: red; }\n    <<b { color: blue; }\n" +
+  "    [class^=x] { color: green; }\n  `\n})";
+var caretQfDiags = h.diagHandler.handle(caretQfSrc).filter(function(d) { return d.code === 'deprecated-css-caret'; });
+var caretQfActions = caretQfDiags.reduce(function(acc, d) {
+  return acc.concat(codeActionHandler.handle(caretQfSrc, d.range, { diagnostics: [d] }, 'file:///x'));
+}, []);
+var caretQfEdit = caretQfActions.length === 1 && caretQfActions[0].edit.changes['file:///x'][0];
+test(caretQfActions.length === 1 && caretQfActions[0].title === "Replace '^' with '<<'" &&
+  caretQfEdit.newText === '<<' && caretQfEdit.range.start.line === 4 &&
+  caretQfEdit.range.start.character === 4 && caretQfEdit.range.end.line === 4 &&
+  caretQfEdit.range.end.character === 5,
+  "CodeAction: deprecated '^' gets one fix replacing exactly the ^ of ^a with '<<' (not <<b or [class^=x])");
+
+
 // === SignatureHelpHandler ===
 
 section('SignatureHelpHandler');
