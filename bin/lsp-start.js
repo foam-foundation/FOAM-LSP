@@ -5,7 +5,7 @@
  */
 
 // Entry point for FOAM LSP server.
-// Usage: node foam3/tools/lsp-start.js [pom-path]
+// Usage: node <FOAM-LSP>/bin/lsp-start.js [pom-path]   (cwd = project root)
 //
 // Uses pmake (same as build.sh) to correctly load all FOAM models,
 // then starts the LSP JSON-RPC server on stdio.
@@ -49,9 +49,26 @@ globalThis.DRY_RUN = false;
 globalThis.HELP    = false;
 globalThis.NOP     = '';
 
-var path_ = require('path');
-var pmake = require('./pmake');
-var buildlib = require('./buildlib');
+var path_       = require('path');
+var resolveFoam = require('../lib/resolveFoam');
+
+var pomPath = path_.resolve(process.argv[2] || path_.join(process.cwd(), 'pom'));
+
+var roots;
+try {
+  roots = resolveFoam(path_.dirname(pomPath));
+} catch (e) {
+  console.error(e.message);
+  process.exit(1);
+}
+globalThis.__foamLSPRoots__ = roots;
+
+var pmake = require(path_.join(roots.foam3, 'tools', 'pmake'));
+if ( pmake.ABSOLUTE_MAKERS !== true ) {
+  console.error('FOAM-LSP: foam3 at ' + roots.foam3 + ' is too old (tools/pmake.js cannot load an external maker); update foam3');
+  process.exit(1);
+}
+var buildlib = require(path_.join(roots.foam3, 'tools', 'buildlib'));
 
 // Override buildlib.error to not exit — keep LSP alive even if POM loading has errors
 var origError = buildlib.error;
@@ -59,6 +76,6 @@ buildlib.error = function() {
   console.error('[LSP] Build error (non-fatal):', Array.prototype.join.call(arguments, ' '));
 };
 
-var pomPath = process.argv[2] || path_.join(process.cwd(), 'pom');
-
-pmake.bind(buildlib, '-makers=LSP -pom=' + pomPath)();
+// Quoted so a path with spaces stays one argument (foam3 tools/processArgs.js).
+var maker = path_.join(__dirname, '..', 'LSPMaker');
+pmake.bind(buildlib, "-makers='" + maker + "' -pom='" + pomPath + "'")();

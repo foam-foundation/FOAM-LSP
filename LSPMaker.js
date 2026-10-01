@@ -27,7 +27,7 @@ exports.end = function() {
   console.error('[LSP] Loading LSP models...');
 
   // Load LSP source files
-  var lspPom = path_.join(__dirname, 'lsp/pom');
+  var lspPom = path_.join(__dirname, 'src/pom');
   foam.require(lspPom, false, true);
 
   // Promote all UNUSED Models to USED so FoamIndex can see them
@@ -43,5 +43,5 @@ exports.end = function() {
   globalThis.__foamLSPIndex__ = index;
 
   console.error('[LSP] ' + Object.keys(foam.USED).length + ' models loaded. Starting server...');
-  require('./lsp/server').start();
+  require('./src/server').start();
 };
