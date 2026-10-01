@@ -37,15 +37,10 @@ fi
 
 # --- locate project root -------------------------------------------------
 #
-# This script lives at <root>/foam3/tools/lsp/editors/mcp/, so the project
-# root is exactly 5 levels up. (Walking upward by "pom.js + foam3/" is
-# unreliable because foam3/ self-symlinks foam3 -> .)
+# ./build.sh lsp-install runs this from the project root, so $PWD is the
+# project unless FOAM_PROJECT_ROOT says otherwise.
 
-if [ -n "${FOAM_PROJECT_ROOT:-}" ]; then
-  PROJECT_ROOT="$FOAM_PROJECT_ROOT"
-else
-  PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../../.." && pwd)"
-fi
+PROJECT_ROOT="${FOAM_PROJECT_ROOT:-$PWD}"
 
 if [ ! -f "$PROJECT_ROOT/pom.js" ]; then
   echo "ERROR: $PROJECT_ROOT/pom.js not found — not a FOAM project root." >&2

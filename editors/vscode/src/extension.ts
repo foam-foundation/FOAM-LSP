@@ -6,6 +6,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { ExtensionContext, workspace, window, commands, Uri, StatusBarItem, RelativePattern } from 'vscode';
 import {
   LanguageClient,
@@ -72,55 +73,34 @@ export function activate(context: ExtensionContext) {
   const folders = workspace.workspaceFolders;
   if ( !folders || folders.length === 0 ) return;
 
-  // Search all workspace folders and one level of subdirectories for lsp-start.js
-  const lspPaths = ['foam3/tools/lsp-start.js', 'tools/lsp-start.js'];
-  let lspScript = '';
-  let workspaceRoot = folders[0].uri.fsPath;
-
-  for ( const folder of folders ) {
-    const root = folder.uri.fsPath;
-    // Check the folder itself
-    for ( const rel of lspPaths ) {
-      const candidate = path.join(root, rel);
-      if ( fs.existsSync(candidate) ) {
-        lspScript = candidate;
-        workspaceRoot = root;
-        break;
-      }
-    }
-    if ( lspScript ) break;
-
-    // Check immediate subdirectories (handles opening the parent directory)
-    try {
-      const entries = fs.readdirSync(root, { withFileTypes: true });
-      for ( const entry of entries ) {
-        if ( !entry.isDirectory() || entry.name.startsWith('.') ) continue;
-        for ( const rel of lspPaths ) {
-          const candidate = path.join(root, entry.name, rel);
-          if ( fs.existsSync(candidate) ) {
-            lspScript = candidate;
-            workspaceRoot = path.join(root, entry.name);
-            break;
-          }
-        }
-        if ( lspScript ) break;
-      }
-    } catch (e) { /* ignore permission errors */ }
-    if ( lspScript ) break;
+  // The LSP lives in the FOAM-LSP clone that ./build.sh lsp-install creates.
+  const lspHome = (workspace.getConfiguration('foam').get<string>('lspPath') || '').trim()
+    || process.env.FOAM_LSP_HOME || path.join(os.homedir(), '.foam', 'lsp');
+  const lspScript = path.join(lspHome, 'bin', 'lsp-start.js');
+  if ( !fs.existsSync(lspScript) ) {
+    outputChannel.appendLine('FOAM LSP not installed at ' + lspHome + ' — run ./build.sh lsp-install:vscode');
+    return;
   }
 
-  if ( !lspScript ) {
-    outputChannel.appendLine('Not a FOAM project (lsp-start.js not found)');
+  // Workspace root: the first folder, or immediate subfolder, holding pom.js.
+  let workspaceRoot = '';
+  for ( const folder of folders ) {
+    const root = folder.uri.fsPath;
+    if ( fs.existsSync(path.join(root, 'pom.js')) ) { workspaceRoot = root; break; }
+    try {
+      const sub = fs.readdirSync(root, { withFileTypes: true }).find(e =>
+        e.isDirectory() && !e.name.startsWith('.') && fs.existsSync(path.join(root, e.name, 'pom.js')));
+      if ( sub ) { workspaceRoot = path.join(root, sub.name); break; }
+    } catch (e) { /* ignore permission errors */ }
+  }
+  if ( !workspaceRoot ) {
+    outputChannel.appendLine('Not a FOAM project (pom.js not found)');
     outputChannel.appendLine('Searched: ' + folders.map(f => f.uri.fsPath).join(', '));
     return;
   }
 
   outputChannel.appendLine('Workspace: ' + workspaceRoot);
-
-  let pomPath = path.join(workspaceRoot, 'pom');
-  if ( !fs.existsSync(pomPath + '.js') ) {
-    pomPath = path.join(path.dirname(path.dirname(lspScript)), 'pom');
-  }
+  const pomPath = path.join(workspaceRoot, 'pom');
 
   outputChannel.appendLine('LSP: ' + lspScript);
   outputChannel.appendLine('POM: ' + pomPath);
@@ -486,7 +466,7 @@ function startServer(
   );
 
   const serverWatcher = workspace.createFileSystemWatcher(
-    new RelativePattern(path.join(path.dirname(lspScript), 'lsp'), '**/*.js')
+    new RelativePattern(path.join(path.dirname(path.dirname(lspScript)), 'src'), '**/*.js')
   );
   // Debounce: a pull or multi-file save fires many events — restart once.
   let restartTimer: ReturnType<typeof setTimeout> | undefined;

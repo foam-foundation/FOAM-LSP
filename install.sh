@@ -23,6 +23,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 EDITORS_DIR="$SCRIPT_DIR/editors"
 
+# The project being set up: ./build.sh lsp-install runs this from the project
+# root. Exported because the per-editor installers run from their own dirs.
+export FOAM_PROJECT_ROOT="${FOAM_PROJECT_ROOT:-$PWD}"
+
 # Colors (if terminal supports them)
 if [ -t 1 ]; then
   BOLD='\033[1m'

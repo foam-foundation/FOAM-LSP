@@ -11,6 +11,7 @@
   "activationEvents": [
     "workspaceContains:pom.js",
     "workspaceContains:foam3/src/foam.js",
+    "workspaceContains:src/foam.js",
     "onLanguage:javascript",
     "onLanguage:foam-journal"
   ],
@@ -28,6 +29,11 @@
           "type": "string",
           "default": "",
           "description": "Absolute path to the Node binary that launches the language server. Leave empty to use the Node bundled with VS Code — this avoids 'spawn node ENOENT' when VS Code is launched from the GUI without a shell PATH (e.g. Node installed via nvm)."
+        },
+        "foam.lspPath": {
+          "type": "string",
+          "default": "",
+          "description": "FOAM-LSP clone to run. Leave empty to use $FOAM_LSP_HOME or ~/.foam/lsp (where ./build.sh lsp-install puts it). Set it to a development checkout of FOAM-LSP to test changes."
         },
         "foam.features.diagnostics.java": {
           "type": "boolean",

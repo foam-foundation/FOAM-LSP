@@ -8,7 +8,7 @@
 // FOAM LSP MCP Server — exposes the FOAM Language Server as MCP tools
 // for any MCP-speaking coding agent (Claude Code, Codex, Gemini, Cursor,
 // Pi, ...). Speaks MCP (NDJSON) on its own stdio, spawns the FOAM LSP
-// (`foam3/tools/lsp-start.js`) as a child, and speaks LSP (Content-
+// (`bin/lsp-start.js` in this repo) as a child, and speaks LSP (Content-
 // Length-framed JSON-RPC) to it.
 //
 // Tool results are shaped into compact `path:line:character` text rather
@@ -18,8 +18,8 @@
 //
 // Environment:
 //   FOAM_PROJECT_ROOT  — absolute path to the FOAM project root (the dir
-//                        containing pom.js and the foam3/ submodule).
-//                        Falls back to process.cwd() if unset.
+//                        containing pom.js). Falls back to process.cwd()
+//                        if unset.
 //
 // Requiring this file (e.g. from tests) loads the pure helpers + schemas
 // WITHOUT spawning the LSP; the server only boots when run directly.
@@ -30,6 +30,9 @@ const { spawn }   = require('child_process');
 const fs          = require('fs');
 const path        = require('path');
 const readline    = require('readline');
+
+// The LSP entry ships in this repo, two levels up from editors/mcp/.
+const LSP_ENTRY = path.join(__dirname, '..', '..', 'bin', 'lsp-start.js');
 
 // --- stderr logger (stdout is reserved for MCP protocol) -----------------
 
@@ -394,7 +397,7 @@ class FoamLSPClient {
 
   start() {
     if ( this.child ) return;
-    const entry = path.join(this.projectRoot, 'foam3/tools/lsp-start.js');
+    const entry = LSP_ENTRY;
     if ( ! fs.existsSync(entry) ) {
       this._rejectReady(new Error('FOAM LSP entry not found at ' + entry));
       return;
@@ -949,7 +952,7 @@ module.exports = {
   shapeLocations, shapeHover, shapeDocumentSymbols, shapeWorkspaceSymbols,
   shapeDiagnostics, shapeItems, shapeCodeActions,
   toolSchemas, resolvePos, callTool, FoamLSPClient,
-  applyWorkspaceEdit, posToOffset
+  applyWorkspaceEdit, posToOffset, LSP_ENTRY
 };
 
 if ( require.main === module ) main();

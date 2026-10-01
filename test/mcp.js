@@ -187,3 +187,7 @@ try {
 }
 
 test(mcp.applyWorkspaceEdit({}).length === 0, 'applyWorkspaceEdit: no changes → no-op, empty result');
+
+h.section('MCP launches the LSP from this repo');
+test(mcp.LSP_ENTRY === require('path').join(__dirname, '..', 'bin', 'lsp-start.js') &&
+     require('fs').existsSync(mcp.LSP_ENTRY), 'LSP_ENTRY is bin/lsp-start.js in this repo');

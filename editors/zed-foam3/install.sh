@@ -45,13 +45,12 @@ echo '  "lsp": {'
 echo '    "foam3-lsp": {'
 echo '      "binary": {'
 echo '        "path": "/path/to/node",'
-echo '        "arguments": ["foam3/tools/lsp-start.js"]'
+echo '        "arguments": ["/path/to/FOAM-LSP/bin/lsp-start.js"]'
 echo '      }'
 echo '    }'
 echo '  }'
 echo ""
-echo "The default uses 'node' from PATH and 'foam3/tools/lsp-start.js'"
-echo "relative to the workspace root."
+echo "The default uses 'node' from PATH and \$FOAM_LSP_HOME (or ~/.foam/lsp)/bin/lsp-start.js."
 echo ""
 echo "--- Java syntax highlighting in javaCode: blocks ---"
 echo ""

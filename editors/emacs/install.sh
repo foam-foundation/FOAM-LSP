@@ -15,15 +15,8 @@ DEST_DIR="${HOME}/.emacs.d/site-lisp"
 echo "==> FOAM LSP — Emacs Setup"
 echo ""
 
-# Detect FOAM project root (walk up from script location)
-FOAM_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-LSP_START="$FOAM_ROOT/tools/lsp-start.js"
-
-if [ ! -f "$LSP_START" ]; then
-  echo "WARNING: Could not find lsp-start.js at $LSP_START"
-  echo "         You will need to adjust the paths in the config snippets below."
-  LSP_START="foam3/tools/lsp-start.js"
-fi
+# The LSP entry ships in this repo, two levels up from editors/emacs/.
+LSP_START="$(cd "$SCRIPT_DIR/../.." && pwd)/bin/lsp-start.js"
 
 # Install all .el files
 mkdir -p "$DEST_DIR"

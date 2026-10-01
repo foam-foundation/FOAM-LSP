@@ -31,7 +31,7 @@
 ;; Usage with eglot (no package needed):
 ;;   (with-eval-after-load 'eglot
 ;;     (add-to-list 'eglot-server-programs
-;;                  '((js-mode js-ts-mode) . ("node" "foam3/tools/lsp-start.js"))))
+;;                  '((js-mode js-ts-mode) . ("node" "~/.foam/lsp/bin/lsp-start.js"))))
 
 ;;; Code:
 
@@ -43,10 +43,12 @@
   :link '(url-link "https://github.com/foam-foundation/foam3")
   :tag "FOAM3 LSP")
 
-(defcustom lsp-foam-server-command '("node" "foam3/tools/lsp-start.js")
+(defcustom lsp-foam-server-command
+  (list "node" (expand-file-name "bin/lsp-start.js" (or (getenv "FOAM_LSP_HOME") "~/.foam/lsp")))
   "Command to start the FOAM LSP server.
-The server must be started from the FOAM project root (the directory
-containing pom.js).  Adjust this if your project layout differs."
+The server runs from the FOAM project root (the directory containing pom.js)
+and loads that project's foam3.  The default is the clone ./build.sh
+lsp-install creates."
   :type '(repeat string)
   :group 'lsp-foam)
 

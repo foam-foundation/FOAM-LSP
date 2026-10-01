@@ -567,6 +567,11 @@ var bootDone = h.withServerLane(async function() {
                 manifest.contributes.configuration &&
                 manifest.contributes.configuration.properties ) || {};
 
+  test(props['foam.lspPath'] && props['foam.lspPath'].default === '',
+    'VS Code declares foam.lspPath with an empty default');
+  test(manifest.activationEvents.indexOf('workspaceContains:src/foam.js') !== -1,
+    'VS Code activates in the foam3 repo itself');
+
   var manifestFlags = Object.keys(props)
     .filter(function(k) { return k.indexOf('foam.features.') === 0; })
     .map(function(k) { return k.substring('foam.features.'.length); })
