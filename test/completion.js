@@ -930,7 +930,7 @@ test(! arItem(arComplete(arInner)), 'a short name an inner class owns is not off
 // 12. Flag off — today's list: required classes only, complete.
 var arOff = foam.parse.lsp.handlers.MemberCompletionHandler.create({
   index: index,
-  featureConfig: require(path.resolve(__dirname, '../../lsp/FeatureConfig')).load({
+  featureConfig: require(path.resolve(__dirname, '../src/FeatureConfig')).load({
     initOptions: { features: { 'completion.autoRequires': false } } })
 });
 var arOffRes = arComplete(arSorted, arOff);

@@ -7,11 +7,11 @@
  */
 
 // Entrypoint for the FOAM LSP test suite. The actual tests live under
-// foam3/tools/tests/lsp/<category>.js — this file just boots the shared
+// test/<category>.js — this file just boots the shared
 // harness and loads each category in order so the aggregate run produces a
 // single pass/fail tally.
 //
-// Usage: cd <your-project> && node foam3/tools/tests/testFoamLSP.js
+// Usage: cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 
 // Hard watchdog: fail fast if any single test infinite-loops. 240s covers the
 // ~80s of sync categories (pmake boot + workspace-wide usageIndex and
@@ -35,15 +35,15 @@ if ( require.main === module ) {
 // the handlers that depend on it. usageIndex (~79s) and navigation (~47s) do
 // full-workspace scans and dominate the run; pass a category list to skip them
 // while iterating on one area:
-//   node foam3/tools/tests/testFoamLSP.js                  # all
-//   node foam3/tools/tests/testFoamLSP.js diagnostics      # just diagnostics
-//   node foam3/tools/tests/testFoamLSP.js hover,completion # comma- or space-separated
+//   node <FOAM-LSP>/test/run.js                  # all
+//   node <FOAM-LSP>/test/run.js diagnostics      # just diagnostics
+//   node <FOAM-LSP>/test/run.js hover,completion # comma- or space-separated
 var CATEGORIES = [
   'config',
   'foamIndex', 'grammar', 'utilities', 'completion', 'hover', 'diagnostics',
   'i18n', 'codelens', 'scaffold', 'pom',
   'navigation', 'java', 'jrl', 'editorFeatures', 'typeHierarchy', 'usageIndex',
-  'callHierarchy', 'pomValidation', 'pomNavigation', 'mcp', 'dispatch', 'classify'
+  'callHierarchy', 'pomValidation', 'pomNavigation', 'mcp', 'dispatch', 'classify', 'foamTests'
 ];
 
 // Resolve the category list BEFORE booting the harness so an unknown name fails
@@ -55,9 +55,14 @@ if ( unknown.length ) {
   console.error('Available: ' + CATEGORIES.join(', '));
   process.exit(2);
 }
-var toRun = requested.length ? CATEGORIES.filter(function(c){ return requested.indexOf(c) !== -1; }) : CATEGORIES;
+// Run only when named: foamTests loads test-flagged poms into the shared
+// registry, which every later category would then index.
+var OPT_IN = [ 'foamTests' ];
+var toRun = requested.length ?
+  CATEGORIES.filter(function(c){ return requested.indexOf(c) !== -1; }) :
+  CATEGORIES.filter(function(c){ return OPT_IN.indexOf(c) === -1; });
 
-var h = require('./lsp/_harness');
+var h = require('./_harness');
 
 // Each require() runs its category's tests against the shared harness.
 // Categories are synchronous by default; a category that needs async work
@@ -74,7 +79,7 @@ toRun.forEach(function(c){
   // covered half the suite looks the same as a green one.
   var mod;
   try {
-    mod = require('./lsp/' + c);
+    mod = require('./' + c);
   } catch ( e ) {
     h.test(false, 'category ' + c + ' threw while loading — ' +
       ( e && e.stack ? e.stack : e ));

@@ -632,7 +632,7 @@ var laneDone = h.withServerLane(async function() {
     // not reproduce a rootUri-less session.
     function bootServer() {
       process.stdin.removeAllListeners('data');
-      require('../../lsp/server').start();
+      require('../src/server').start();
       process.stdin.removeAllListeners('end');
       frames = [];
       inBuf  = Buffer.alloc(0);

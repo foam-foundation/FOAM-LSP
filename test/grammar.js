@@ -739,7 +739,7 @@ var path_ts = require('path');
 
 // VS Code TextMate grammar
 var vscodeJs = JSON.parse(fs_ts.readFileSync(
-  path_ts.join(__dirname, '../../lsp/editors/vscode/syntaxes/foam-js.tmLanguage.json'),
+  path_ts.join(__dirname, '../editors/vscode/syntaxes/foam-js.tmLanguage.json'),
   'utf8'));
 var vscodePatterns = (vscodeJs.patterns || []).map(function(p) { return p.match || ''; }).join('\n');
 
@@ -756,7 +756,7 @@ test(! /CLASS\|ENUM\|INTERFACE\|RELATIONSHIP\)\\\\s\*\(\?=/.test(vscodePatterns)
 
 // Zed tree-sitter highlights
 var zedHi = fs_ts.readFileSync(
-  path_ts.join(__dirname, '../../lsp/editors/zed-foam3/languages/foam-javascript/highlights.scm'),
+  path_ts.join(__dirname, '../editors/zed-foam3/languages/foam-javascript/highlights.scm'),
   'utf8');
 
 test(/#match\?\s+@function\.macro\s+"\^\[A-Z\]\[A-Z0-9_\]\*\$"/.test(zedHi) ||

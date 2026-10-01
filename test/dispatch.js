@@ -51,8 +51,8 @@ fs.writeFileSync(path.join(root, 'pom.js'), BAD_POM);
 // frames over real OS pipes instead of process.stdin.emit('data').
 // Measured marginal cost of the second boot: 2.5s (config alone 4.0s,
 // config,dispatch 6.6s).
-var repoRoot   = path.join(__dirname, '..', '..', '..');
-var serverPath = path.join(repoRoot, 'tools', 'lsp-start.js');
+var repoRoot   = h.roots.foam3;
+var serverPath = path.join(__dirname, '..', 'bin', 'lsp-start.js');
 var child = cp.spawn(process.execPath, [ serverPath, path.join(repoRoot, 'pom') ], {
   cwd: repoRoot, stdio: [ 'pipe', 'pipe', 'pipe' ]
 });

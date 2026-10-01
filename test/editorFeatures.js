@@ -587,7 +587,7 @@ test(hsl && hsl.red === 1 && hsl.blue === 1 && Math.abs(hsl.alpha - 0.9) < 1e-9,
   'DocumentColor: parses the modern hsla(h s% l% / a) form tokens resolve to');
 // Tabs and SegmentedTabs both declare tabActiveColor with different values;
 // each css: block's swatch must show its own class's value, as the page does.
-var tabsPath = require('path').join(__dirname, '../../../src/foam/u2/Tabs.js');
+var tabsPath = require('path').join(h.roots.foam3, 'src/foam/u2/Tabs.js');
 var tabsText = require('fs').readFileSync(tabsPath, 'utf8');
 var tabsLines = tabsText.split('\n');
 var tabsSw = colorHandler.handle(tabsText, 'file://' + tabsPath).filter(function(s) {

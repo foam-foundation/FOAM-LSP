@@ -134,7 +134,7 @@ test(fa[0] && typeof fa[0].start === 'number' && typeof fa[0].end === 'number' &
 
 section('DiagnosticsHandler — pom diagnostics, gated by diagnostics.pom');
 
-var FeatureConfig = require('../../lsp/FeatureConfig');
+var FeatureConfig = require('../src/FeatureConfig');
 
 function diagHandlerFor(features) {
   return foam.parse.lsp.handlers.DiagnosticsHandler.create({

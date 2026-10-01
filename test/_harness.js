@@ -8,7 +8,7 @@
 // node's module cache), wires up the common handlers, and exposes counters +
 // test()/section() helpers for every category file to share.
 //
-// Individual category files under foam3/tools/tests/lsp/*.js require this
+// Individual category files under test/*.js require this
 // module and read the counters / shared instances from it. The entrypoint
 // testFoamLSP.js reads `counters` at the end to drive its exit code.
 
@@ -52,12 +52,15 @@ process.on('uncaughtException', function(e) {
 
 var path = require('path');
 var fs = require('fs');
-var pmake = require(path.resolve(__dirname, '../../pmake'));
-var buildlib = require(path.resolve(__dirname, '../../buildlib'));
+var resolveFoam = require('../lib/resolveFoam');
+var roots = resolveFoam(process.cwd());
+globalThis.__foamLSPRoots__ = roots;
+var pmake = require(path.join(roots.foam3, 'tools', 'pmake'));
+var buildlib = require(path.join(roots.foam3, 'tools', 'buildlib'));
 buildlib.error = function() { /* suppress fatal errors during boot */ };
 
 var pomPath = path.resolve(process.cwd(), 'pom');
-pmake.bind(buildlib, '-makers=LSP -pom=' + pomPath)();
+pmake.bind(buildlib, "-makers='" + path.join(__dirname, '..', 'LSPMaker') + "' -pom='" + pomPath + "'")();
 
 // The LSP maker's end() hook (LSPMaker.js) calls server.js's start() as a
 // side effect of loading the LSP source files for class registration —
@@ -78,6 +81,25 @@ function detachStdin_() {
 }
 detachStdin_();
 booted_ = true;
+
+// The suite's fixtures (test/fixtures) sit outside the workspace the LSP
+// walks: inside foam3 they lived under tools/tests/lsp/, so the workspace
+// .jrl walk found them. Add their journals to that walk so the tests built on
+// pom-less fixture directories (jrlservices/*) see them as before.
+var FIXTURE_JRLS = [];
+(function collect(dir) {
+  fs.readdirSync(dir, { withFileTypes: true }).forEach(function(e) {
+    var p = path.join(dir, e.name);
+    if ( e.isDirectory() ) collect(p);
+    else if ( e.name.endsWith('.jrl') ) FIXTURE_JRLS.push(fs.realpathSync(p));
+  });
+})(path.join(__dirname, 'fixtures'));
+var FoamIndexProto_  = foam.parse.lsp.FoamIndex.prototype;
+var workspaceWalk_   = FoamIndexProto_.findWorkspaceJrlFiles_;
+FoamIndexProto_.findWorkspaceJrlFiles_ = function() {
+  var out = workspaceWalk_.call(this);
+  return out.concat(FIXTURE_JRLS.filter(function(p) { return out.indexOf(p) === -1; }));
+};
 
 // Test helpers
 function test(condition, message) {
@@ -144,6 +166,8 @@ var defHandler        = foam.parse.lsp.handlers.DefinitionHandler.create({ index
 var semanticHandler   = foam.parse.lsp.handlers.SemanticTokenHandler.create({ index: index, cache: cache, typeTracker: typeTracker });
 
 module.exports = {
+  roots:             roots,
+  workspaceWalk:     workspaceWalk_,   // the walk without the fixture journals
   counters:          counters,
   test:              test,
   section:           section,

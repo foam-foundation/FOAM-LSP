@@ -13,7 +13,7 @@ var h = require('./_harness');
 var test = h.test, section = h.section;
 var index = h.index, cache = h.cache;
 
-var FeatureConfig = require('../../lsp/FeatureConfig');
+var FeatureConfig = require('../src/FeatureConfig');
 
 // Real, top-level foam.CLASS() registrations (this file is a plain Node
 // module, not a sandboxed fixture eval, so these actually register in the

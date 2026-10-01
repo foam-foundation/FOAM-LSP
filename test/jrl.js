@@ -885,7 +885,7 @@ test(ssCtx2 && ssCtx2.key === 'serviceScript',
 // === JRL TEXTMATE HIGHLIGHTS (Java + JSON injections) ===
 section('JRL grammar injections — Java & JSON');
 
-var jrlGrammarPath = 'foam3/tools/lsp/editors/vscode/syntaxes/foam-jrl.tmLanguage.json';
+var jrlGrammarPath = require('path').join(__dirname, '../editors/vscode/syntaxes/foam-jrl.tmLanguage.json');
 var jrlGrammar = JSON.parse(require('fs').readFileSync(jrlGrammarPath, 'utf8'));
 
 test(!! jrlGrammar.repository['java-block-triple'],
@@ -1175,13 +1175,13 @@ test(unkTypeCount === 0,
 section('Zed tree-sitter grammar: JSON injection for client blocks');
 var fs_ = require('fs');
 var path_ = require('path');
-var zedInj = fs_.readFileSync(path_.join(__dirname, '../../lsp/editors/zed-foam3/languages/jrl/injections.scm'), 'utf8');
+var zedInj = fs_.readFileSync(path_.join(__dirname, '../editors/zed-foam3/languages/jrl/injections.scm'), 'utf8');
 test(/injection\.language\s+"json"/.test(zedInj),
   'Zed JRL injections.scm declares JSON injection');
 test(/#eq\?\s+@_key\s+"client"/.test(zedInj),
   'Zed JRL injections.scm matches `client` key for JSON injection');
 // VS Code grammar parity.
-var vscodeJrl = JSON.parse(fs_.readFileSync(path_.join(__dirname, '../../lsp/editors/vscode/syntaxes/foam-jrl.tmLanguage.json'), 'utf8'));
+var vscodeJrl = JSON.parse(fs_.readFileSync(path_.join(__dirname, '../editors/vscode/syntaxes/foam-jrl.tmLanguage.json'), 'utf8'));
 test(!! vscodeJrl.repository['json-block-triple'] && !! vscodeJrl.repository['json-block-backtick'],
   'VS Code foam-jrl grammar has JSON injections for client triple/backtick');
 
@@ -1283,7 +1283,7 @@ var chainedLine = chained.split('\n')[4];
 
 // === REAL services.jrl sanity check ===
 section('Real services.jrl hover sanity');
-var realJrlPath = require('path').resolve(__dirname, '../../../../journals/services.jrl');
+var realJrlPath = require('path').join(h.roots.project, 'journals/services.jrl');
 if ( require('fs').existsSync(realJrlPath) ) {
   var realText = require('fs').readFileSync(realJrlPath, 'utf8');
   var realLines = realText.split('\n');
@@ -1456,7 +1456,7 @@ try {
   var wFiles;
   try {
     process.chdir(wRoot);
-    wFiles = index.findWorkspaceJrlFiles_();
+    wFiles = h.workspaceWalk.call(index);   // the production walk, without the harness' fixture journals
   } finally {
     process.chdir(wPrev);
   }
@@ -1646,7 +1646,7 @@ test(withLines.length === 2 && withLines[0].line === 0 && withLines[1].line === 
 
 // Not a fixture: the repo's own journal, which is the file the old loader
 // silently returned nothing for.
-var realServices = path.resolve(__dirname, '../../../src/services.jrl');
+var realServices = path.join(h.roots.foam3, 'src/services.jrl');
 if ( fs.existsSync(realServices) ) {
   var realLoaded = jrlLoader.loadFile(realServices);
   test(realLoaded.length > 0 && realLoaded.some(function(o) { return o.name === 'cSpecDAO'; }),
@@ -1768,7 +1768,7 @@ var jrlSaveDone = h.withServerLane(async function() {
     pomPushed = true;
 
     process.stdin.removeAllListeners('data');
-    require('../../lsp/server').start();
+    require('../src/server').start();
     process.stdin.removeAllListeners('end');
     frames = [];
     inBuf  = Buffer.alloc(0);

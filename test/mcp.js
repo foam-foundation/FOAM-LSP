@@ -5,7 +5,7 @@
  */
 
 // Unit tests for the FOAM LSP MCP server's pure translation layer
-// (foam3/tools/lsp/editors/mcp/server.js): URI helpers, output shapers,
+// (editors/mcp/server.js): URI helpers, output shapers,
 // tool schemas, and argument routing. These exercise the agent-facing
 // surface WITHOUT spawning the LSP child — requiring the server module only
 // loads its helpers because main() is guarded by `require.main === module`.
@@ -13,7 +13,7 @@
 var h = require('./_harness');
 var test = h.test, section = h.section;
 
-var mcp = require('../../lsp/editors/mcp/server');
+var mcp = require('../editors/mcp/server');
 var ROOT = '/proj';
 
 section('MCP — URI helpers');

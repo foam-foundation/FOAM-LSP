@@ -1085,13 +1085,13 @@ var srvDone = (async function() {
 })();
 
 // MCP wrapper's two-phase i18n tools — requires editors/mcp/server.js the
-// same way tools/tests/lsp/mcp.js does: loading the module never spawns the
+// same way test/mcp.js does: loading the module never spawns the
 // LSP (main() is guarded by require.main === module), so these run against
 // hand-written `lsp` stubs instead of a real child process.
 var mcpDone = (async function() {
   try {
     section('MCP — foam_i18n two-phase');
-    var mcp = require('../../lsp/editors/mcp/server');
+    var mcp = require('../editors/mcp/server');
     var os2 = require('os');
     // pid-suffixed so a concurrent run never collides on the same tmp path.
     var tmpFile = h.path.join(os2.tmpdir(), 'I18nMcpTarget-' + process.pid + '.js');
@@ -1326,7 +1326,7 @@ var laneDone = h.withServerLane(async function() {
     h.fs.writeFileSync(laneTmp, MSGS);
     var laneUri = 'file://' + laneTmp;
 
-    require('../../lsp/server').start();
+    require('../src/server').start();
     // start() installs a process.stdin.on('end') → process.exit(0) handler
     // for real editor-lane use, where EOF on stdin means the client hung up.
     // In-process here, stdin is the whole test runner's — an EOF during this

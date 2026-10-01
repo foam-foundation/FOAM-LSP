@@ -15,7 +15,7 @@
 var h = require('./_harness');
 var test = h.test, section = h.section;
 
-var FeatureConfig = require('../../lsp/FeatureConfig');
+var FeatureConfig = require('../src/FeatureConfig');
 var fs = require('fs'), path = require('path'), os = require('os');
 
 section('FeatureConfig — defaults');
@@ -241,7 +241,7 @@ test(actionsOff.some(isActionA),
 // in the initialize response and the diagnostics guards live on the
 // publishDiagnostics path, so both are only reachable by booting server.js
 // and talking real JSON-RPC to it — the same in-process lane the i18n
-// category uses for workspace/executeCommand (tools/tests/lsp/i18n.js).
+// category uses for workspace/executeCommand (test/i18n.js).
 //
 // Two phases, two server instances: phase 1 turns providers OFF and phase 2
 // leaves them at their defaults, so every assertion has its own control —
@@ -309,7 +309,7 @@ var bootDone = h.withServerLane(async function() {
       // Only one instance may hold the stdin 'data' listener, or every
       // message would reach both and each would answer it.
       process.stdin.removeAllListeners('data');
-      require('../../lsp/server').start();
+      require('../src/server').start();
       // start() installs stdin 'end' -> process.exit(0), correct for a real
       // LSP process but fatal in-process: EOF on the runner's own stdin would
       // exit the whole run green with every later test silently skipped.
@@ -540,7 +540,7 @@ var bootDone = h.withServerLane(async function() {
 // server.js/providers, which must therefore null-check every i18n value.
 // Pinned so a future "skip null too" change is a conscious one.
 (function() {
-  var FeatureConfig = require('../../lsp/FeatureConfig');
+  var FeatureConfig = require('../src/FeatureConfig');
   var fcNull = FeatureConfig.load({ initOptions: { i18n: { languages: null } } });
   h.section('FeatureConfig — i18n null vs undefined');
   h.test(fcNull.i18n && fcNull.i18n.languages === null &&
@@ -560,9 +560,9 @@ var bootDone = h.withServerLane(async function() {
   var section = h.section, test = h.test;
   section('FeatureConfig <-> VS Code manifest contract');
 
-  var FeatureConfig = require('../../lsp/FeatureConfig');
+  var FeatureConfig = require('../src/FeatureConfig');
   var manifest = JSON.parse(require('fs').readFileSync(
-    require('path').join(__dirname, '..', '..', 'lsp', 'editors', 'vscode', 'package.json'), 'utf8'));
+    require('path').join(__dirname, '..', 'editors', 'vscode', 'package.json'), 'utf8'));
   var props = ( manifest.contributes &&
                 manifest.contributes.configuration &&
                 manifest.contributes.configuration.properties ) || {};

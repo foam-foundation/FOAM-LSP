@@ -638,7 +638,7 @@ section('memberScanLocations_ — dedup when multiple classes share a file');
 section('logLspError helper');
 
 (function() {
-  var leLogLspError = require('../../lsp/logError').logLspError;
+  var leLogLspError = require('../src/logError').logLspError;
   var leOrigErr = console.error;
   var leCaptured = [];
   console.error = function(msg) { leCaptured.push(msg); };

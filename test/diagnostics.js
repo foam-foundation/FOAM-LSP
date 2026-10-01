@@ -1340,7 +1340,7 @@ module.exports.done = h.withServerLane(async function() {
     }
     function boot() {
       process.stdin.removeAllListeners('data');
-      require('../../lsp/server').start();
+      require('../src/server').start();
       process.stdin.removeAllListeners('end');
       frames = []; inBuf = Buffer.alloc(0);
     }

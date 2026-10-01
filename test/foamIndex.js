@@ -456,7 +456,7 @@ test(jDirs.length > iDirs.length,
   'getJournalDirs is a superset of getIndexedDirs (pom locations added)'
   + ' (' + jDirs.length + ' vs ' + iDirs.length + ')');
 
-var srcRoot = path.resolve(__dirname, '../../../src');
+var srcRoot = path.join(h.roots.foam3, 'src');
 test(iDirs.indexOf(srcRoot) === -1 && jDirs.indexOf(srcRoot) !== -1,
   'getJournalDirs reaches src/, which holds services.jrl and no class file');
 

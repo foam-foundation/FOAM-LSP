@@ -873,7 +873,7 @@ svcNegatives.forEach(function(c) {
 
 // Not a fixture: the file the review named. BlobView really does write
 // attrs({ type: 'file' }), and `file` really is a CSpec in src/services.jrl.
-var blobPath = path.resolve(__dirname, '../../../src/foam/u2/view/BlobView.js');
+var blobPath = path.join(h.roots.foam3, 'src/foam/u2/view/BlobView.js');
 if ( fs.existsSync(blobPath) ) {
   var blobText  = fs.readFileSync(blobPath, 'utf8');
   var blobLines = blobText.split('\n');
