@@ -78,7 +78,9 @@ export function activate(context: ExtensionContext) {
     || process.env.FOAM_LSP_HOME || path.join(os.homedir(), '.foam', 'lsp');
   const lspScript = path.join(lspHome, 'bin', 'lsp-start.js');
   if ( !fs.existsSync(lspScript) ) {
-    outputChannel.appendLine('FOAM LSP not installed at ' + lspHome + ' — run ./build.sh lsp-install:vscode');
+    const msg = 'FOAM LSP is not installed at ' + lspHome + '. Run ./build.sh lsp-install:vscode';
+    outputChannel.appendLine(msg);
+    window.showWarningMessage(msg);
     return;
   }
 

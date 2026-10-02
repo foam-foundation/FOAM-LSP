@@ -1,12 +1,18 @@
 name: test
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 6 * * *'   # nightly: a foam3 change that breaks the LSP shows up within a day
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        foam3: [development]
+        # development, and the oldest foam3 main supports: the commit the LSP
+        # was moved from. Raise it when the LSP starts needing something newer.
+        foam3: [development, a0bbd441abe96ec77d451649b5ba22c53a6d83e7]
     steps:
       - uses: actions/checkout@v4
         with: { path: FOAM-LSP }
@@ -15,6 +21,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm install --no-audit --no-fund
+        working-directory: foam3
+      # A foam3 from before the move still carries the old in-tree LSP; its test
+      # fixtures would otherwise be indexed twice.
+      - run: rm -rf tools/lsp tools/tests/lsp
         working-directory: foam3
       - run: node FOAM-LSP/test/resolveFoam.js
       - run: node ../FOAM-LSP/test/run.js

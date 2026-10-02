@@ -60,7 +60,9 @@ var buildlib = require(path.join(roots.foam3, 'tools', 'buildlib'));
 buildlib.error = function() { /* suppress fatal errors during boot */ };
 
 var pomPath = path.resolve(process.cwd(), 'pom');
-pmake.bind(buildlib, "-makers='" + path.join(__dirname, '..', 'LSPMaker') + "' -pom='" + pomPath + "'")();
+// Same maker lookup as bin/lsp-start.js: -path from foam3's tools/ to this repo.
+var makerDir = path.relative(path.join(roots.foam3, 'tools'), path.join(__dirname, '..'));
+pmake.bind(buildlib, "-makers=LSP -path='" + makerDir + "' -pom='" + pomPath + "'")();
 
 // The LSP maker's end() hook (LSPMaker.js) calls server.js's start() as a
 // side effect of loading the LSP source files for class registration —

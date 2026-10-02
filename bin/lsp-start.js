@@ -64,10 +64,6 @@ try {
 globalThis.__foamLSPRoots__ = roots;
 
 var pmake = require(path_.join(roots.foam3, 'tools', 'pmake'));
-if ( pmake.ABSOLUTE_MAKERS !== true ) {
-  console.error('FOAM-LSP: foam3 at ' + roots.foam3 + ' is too old (tools/pmake.js cannot load an external maker); update foam3');
-  process.exit(1);
-}
 var buildlib = require(path_.join(roots.foam3, 'tools', 'buildlib'));
 
 // Override buildlib.error to not exit — keep LSP alive even if POM loading has errors
@@ -75,6 +71,8 @@ buildlib.error = function() {
   console.error('[LSP] Build error (non-fatal):', Array.prototype.join.call(arguments, ' '));
 };
 
-// Quoted so a path with spaces stays one argument (foam3 tools/processArgs.js).
-var maker = path_.join(__dirname, '..', 'LSPMaker');
-pmake.bind(buildlib, "-makers='" + maker + "' -pom='" + pomPath + "'")();
+// pmake finds a maker at <foam3>/tools/<path>/<name>Maker.js, so -path points
+// it from foam3's tools/ at this repo's LSPMaker.js. Quoted so a path with
+// spaces stays one argument (foam3 tools/processArgs.js).
+var makerDir = path_.relative(path_.join(roots.foam3, 'tools'), path_.join(__dirname, '..'));
+pmake.bind(buildlib, "-makers=LSP -path='" + makerDir + "' -pom='" + pomPath + "'")();

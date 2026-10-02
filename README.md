@@ -12,9 +12,13 @@ From any FOAM project (foam3 itself or an app that carries foam3):
 This clones FOAM-LSP into `~/.foam/lsp` (set `FOAM_LSP_HOME` to change it) and
 registers it. Every build fast-forwards the clone at most once a day:
 
-    ./build.sh --lsp-auto-update:false   # off from now on (saved in the clone)
-    ./build.sh --lsp-auto-update:true    # back on
+    ./build.sh lsp-auto-update:false     # off from now on (saved in the clone)
+    ./build.sh lsp-auto-update:true      # back on
     ./build.sh lsp-update                # update by hand any time
+
+An editor set up while the LSP lived in foam3 still points at
+`foam3/tools/lsp-start.js`; run `./build.sh lsp-install:<editor>` again to
+repoint it.
 
 The LSP loads the project's own foam3 (`<project>/foam3`, or the project when it
 is foam3). Set `FOAM3_ROOT` to point it elsewhere.
