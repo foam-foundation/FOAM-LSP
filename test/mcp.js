@@ -199,6 +199,6 @@ test(lintSchema[0] && lintSchema[0].inputSchema.properties.checks !== undefined,
   'foam_lint schema exposes checks param');
 // The schema enum derives from the shared lintChecks module — assert exact
 // equality so any drift (either direction) fails loudly.
-var canonicalChecks = require('../../lsp/lintChecks');
+var canonicalChecks = require('../src/lintChecks');
 test(lintSchema[0] && JSON.stringify(lintSchema[0].inputSchema.properties.checks.items.enum) === JSON.stringify(canonicalChecks),
   'foam_lint schema checks.items.enum matches the canonical lintChecks list exactly');

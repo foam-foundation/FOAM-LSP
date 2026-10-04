@@ -10,7 +10,7 @@
 // intended for CI jobs and pre-push, not per-commit hooks.
 //
 // Usage, from the FOAM project root (the dir containing pom.js + foam3/):
-//   node foam3/tools/lsp/lint-cli.js [--diff <ref>] [--checks a,b]
+//   node <FOAM-LSP>/bin/lint-cli.js [--diff <ref>] [--checks a,b]
 //        [--strategy-targets x,y] [--format text|json] [--strict]
 
 var path = require('path');
@@ -26,15 +26,28 @@ var has = function(flag) { return process.argv.indexOf(flag) !== -1; };
 // stdout, boot chatter to stderr (same trick as the test harness).
 console.log = function() { console.error.apply(console, arguments); };
 
-var pmake    = require(path.resolve(__dirname, '../pmake'));
-var buildlib = require(path.resolve(__dirname, '../buildlib'));
+var resolveFoam = require('../lib/resolveFoam');
+var roots;
+try {
+  roots = resolveFoam(process.cwd());
+} catch (e) {
+  console.error('lint-cli: ' + e.message);
+  process.exit(2);
+}
+globalThis.__foamLSPRoots__ = roots;
+
+var pmake    = require(path.join(roots.foam3, 'tools', 'pmake'));
+var buildlib = require(path.join(roots.foam3, 'tools', 'buildlib'));
 buildlib.error = function() {};
 globalThis.SILENT = false; globalThis.VERBOSE = false;
 globalThis.DRY_RUN = false; globalThis.HELP = false; globalThis.NOP = '';
 process.on('unhandledRejection', function() {});
 
+// pmake finds a maker at <foam3>/tools/<path>/<name>Maker.js, so -path points
+// it from foam3's tools/ at this repo's LSPMaker.js, as bin/lsp-start.js does.
+var makerDir = path.relative(path.join(roots.foam3, 'tools'), path.join(__dirname, '..'));
 try {
-  pmake.bind(buildlib, '-makers=LSP -pom=' + path.resolve(process.cwd(), 'pom'))();
+  pmake.bind(buildlib, "-makers=LSP -path='" + makerDir + "' -pom='" + path.resolve(process.cwd(), 'pom') + "'")();
 } catch (e) {
   console.error('lint-cli: pmake boot failed: ' + e.message);
   process.exit(2);

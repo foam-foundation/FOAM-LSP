@@ -25,7 +25,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `FileClassifier.js` | The ONE answer to "what kind of file is this", and the ONE scan for where a file's `foam.<X>(` calls are | `classify(uri, text)`. `.jrl` and `pom.js` are decided by FILENAME; everything else by PARSE — the first significant `foam.UPPERCASE(` call, where significant means outside comments and string literals. Every gate routes through one shared instance — server dispatch, `DiagnosticsHandler`, and the six handlers that used to sniff with their own regex (CodeLens, Completion, Definition, Hover, MemberCompletion, Symbol), which is also what makes its per-URI memo effective. `significantCalls(text)` returns every such call as `{ name, offset, line, nested }` — `nested` marks a call inside another foam call's parentheses (a class a method builds at runtime); the bracket count skips regex literals by the previous-token rule — see "Model positions" below; `commentSpans(text)` returns the comments that same walk skipped, so it shares the regex-literal rule: the `/*` in `var re = /[/*]/;` is part of the regex, not a comment |
 | `server.js` | JSON-RPC main loop | Message dispatch, handler creation, helper functions |
 | `lintChecks.js` | foam-lint check names | The one list `LintHandler.ALL_CHECKS` and the MCP `foam_lint` enum both read, so a new check shows up on every surface |
-| `lint-cli.js` | foam-lint without the LSP server | Boots pmake, runs `LintHandler.lint()`; `--diff <ref>`, `--checks`, `--format text\|json`, `--strict`; exit 0 clean or warns only, 1 any error (any finding with `--strict`), 2 boot or check-name error |
+| `bin/lint-cli.js` | foam-lint without the LSP server | Boots pmake, runs `LintHandler.lint()`; `--diff <ref>`, `--checks`, `--format text\|json`, `--strict`; exit 0 clean or warns only, 1 any error (any finding with `--strict`), 2 boot or check-name error |
 | `lsp-start.js` | Entry point | Console redirect, buildlib globals, pmake invocation |
 | `LSPMaker.js` | Build Maker for pmake | Sets flags, builds file index, starts server |
 
@@ -309,9 +309,9 @@ diagnosis, not tidiness: a silent catch makes a broken index and a class
 nobody references produce the same answer, an empty list, and no editor shows
 the difference. `context` names the operation and its subject
 (`'getStringUsages for ' + classId`), so the trace says which file or class
-dropped out. The `bareCatch` test category counts the empty catches under
-`tools/lsp` and fails when the count grows past its baseline
-(`node tools/tests/testFoamLSP.js bareCatch`); a file opts out with a
+dropped out. The `bareCatch` test category counts the empty catches in
+`src/`, `bin/`, `lib/` and `editors/` and fails when the count grows past its
+baseline (`node <FOAM-LSP>/test/run.js bareCatch`); a file opts out with a
 `// foam-lint-ignore: bare-catch` line of its own saying why.
 
 The same rule shapes the counters: `WorkspaceAnalyzer` reports a file it could

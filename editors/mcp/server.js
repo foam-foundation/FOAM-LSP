@@ -32,7 +32,7 @@ const path        = require('path');
 const readline    = require('readline');
 // Canonical lint-check names — shared with LintHandler.ALL_CHECKS so the
 // foam_lint schema can't drift from the checks the server actually runs.
-const LINT_CHECKS = require('../../lintChecks');
+const LINT_CHECKS = require('../../src/lintChecks');
 
 // The LSP entry ships in this repo, two levels up from editors/mcp/.
 const LSP_ENTRY = path.join(__dirname, '..', '..', 'bin', 'lsp-start.js');

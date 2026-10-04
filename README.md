@@ -398,7 +398,7 @@ foam/lint  { scope?: 'all' | 'paths', paths?: string[], checks?: string[],
 
 ### MCP tool: `foam_lint`
 
-Exposed by `tools/lsp/editors/mcp/server.js` with params
+Exposed by `editors/mcp/server.js` with params
 `{ scope?, paths?, checks?, strategyTargets? }`, forwarding straight to
 `foam/lint`. Output is compact text: one `SEVERITY  check  path:line` header
 per finding with an indented message (and `fix:` line when present),
@@ -407,7 +407,7 @@ followed by an `N error(s), M warn(s)` summary.
 ### CLI
 
 ```bash
-node foam3/tools/lsp/lint-cli.js [--diff <ref>] [--checks a,b]
+node <FOAM-LSP>/bin/lint-cli.js [--diff <ref>] [--checks a,b]
      [--strategy-targets x,y] [--format text|json] [--strict]
 ```
 
@@ -455,7 +455,7 @@ in the Problems panel, or run `lint-cli.js` for the full list.
 
 Two honest limitations worth knowing about: the `vscodeLint` test category
 compiles the extension and tests the pure model only — on a machine without
-`tools/lsp/editors/vscode/node_modules` it reports 0 passed / 0 failed and the
+`editors/vscode/node_modules` it reports 0 passed / 0 failed and the
 suite still goes green, so a green run there does not mean the lint model was
 exercised. And the sidebar — both its counts and its leaf icons — treats any
 severity that is not `'error'` as a warning; today `foam/lint` only emits
@@ -523,6 +523,7 @@ cd <foam3 or app root> && node <FOAM-LSP>/test/run.js foamTests
 FOAM-LSP/
 ├── LSPMaker.js                    # Build Maker — hooks into pmake
 ├── bin/lsp-start.js               # Entry point for LSP server
+├── bin/lint-cli.js                # foam-lint from the command line (no LSP server)
 ├── lib/resolveFoam.js             # Finds the project's foam3
 ├── src/
 │   ├── pom.js
@@ -532,7 +533,6 @@ FOAM-LSP/
 │   ├── CursorAnalyzer.js          # Shared text utilities
 │   ├── TypeTracker.js             # Variable type resolution
 │   ├── server.js                  # JSON-RPC main loop (500+ lines)
-│   ├── lint-cli.js                # foam-lint from the command line (no LSP server)
 │   ├── lintChecks.js              # foam-lint check names (one list for every surface)
 │   ├── handlers/
 │   │   ├── pom.js

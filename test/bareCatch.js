@@ -4,10 +4,10 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  */
 
-// Empty catch blocks in the LSP's own source (tools/lsp). A catch with no
-// statement drops the error, so a broken feature looks like an empty result;
-// the fix is logLspError(context, err) from tools/lsp/logError.js (see "A
-// fallback leaves a trace" in tools/lsp/CLAUDE.md).
+// Empty catch blocks in the LSP's own source (src/, bin/, lib/, editors/). A
+// catch with no statement drops the error, so a broken feature looks like an
+// empty result; the fix is logLspError(context, err) from src/logError.js (see
+// "A fallback leaves a trace" in CLAUDE.md).
 //
 // The tree still holds catches written before that rule, so this asserts a
 // ceiling, not zero: a new empty catch fails the run, fixing an old one
@@ -104,15 +104,15 @@ test(! bc.some(function(f) { return f.path.endsWith('Suppressed.js'); }),
 test(bc.some(function(f) { return f.path.endsWith('QuotesMarker.js'); }),
   'the marker quoted inside a string does not skip the file');
 
-section('bare-catch — tools/lsp');
+section('bare-catch — LSP source');
 
-var lspDir = path.resolve(__dirname, '../../lsp');
-var lspCatches = scanBareCatches([ lspDir ]);
+var lspDir = path.resolve(__dirname, '..');
+var lspCatches = scanBareCatches([ 'src', 'bin', 'lib', 'editors' ].map(function(d) { return path.join(lspDir, d); }));
 test(lspCatches.length <= BASELINE,
-  'tools/lsp holds no more empty catches than the baseline (' + lspCatches.length + ' of ' + BASELINE + ')' +
+  'the LSP source holds no more empty catches than the baseline (' + lspCatches.length + ' of ' + BASELINE + ')' +
   ( lspCatches.length > BASELINE ? ' — new: log them with logLspError. All: ' +
     lspCatches.map(function(f) { return path.relative(lspDir, f.path) + ':' + f.line; }).join(', ') : '' ));
 if ( lspCatches.length < BASELINE ) {
-  console.error('bare-catch: ' + lspCatches.length + ' empty catches left under tools/lsp — lower BASELINE in ' +
+  console.error('bare-catch: ' + lspCatches.length + ' empty catches left in the LSP source — lower BASELINE in ' +
     path.relative(process.cwd(), __filename) + ' to ' + lspCatches.length);
 }

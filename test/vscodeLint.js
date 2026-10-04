@@ -19,7 +19,7 @@ var cp   = require('child_process');
 
 section('VS Code lint model');
 
-var EXT = path.resolve(__dirname, '../../lsp/editors/vscode');
+var EXT = path.resolve(__dirname, '../editors/vscode');
 var TSC = path.join(EXT, 'node_modules', 'typescript', 'bin', 'tsc');
 
 if ( ! fs.existsSync(TSC) ) {
@@ -43,7 +43,7 @@ if ( ! fs.existsSync(TSC) ) {
   // tsc leaves out/lintModel.js absent (removed above), so an unguarded
   // require here would throw MODULE_NOT_FOUND at the top level. _harness's
   // uncaughtException handler swallows that throw, which unwinds past every
-  // later category (including testFoamLSP.js's final exit-code check) and
+  // later category (including test/run.js's final exit-code check) and
   // node exits 0 with no SUMMARY — silently hiding the very compile failure
   // the assertion above exists to catch.
   if ( compiled ) {
