@@ -19,7 +19,7 @@ index.buildFileIndex();
 
 var validator = foam.parse.lsp.handlers.PomValidator.create({ index: index });
 var path_      = require('path');
-var foam3Root_ = path_.resolve(__dirname, '../../..');
+var foam3Root_ = h.roots.foam3;
 var result    = validator.validate();
 
 test(result && typeof result === 'object', 'PomValidator.validate returns an object');
