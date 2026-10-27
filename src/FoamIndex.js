@@ -860,7 +860,7 @@ foam.CLASS({
     function indexPomFiles_(pom, path_, fs_) {
       /** Index all files from a POM, storing flag metadata + pom location per class. */
       var location = pom.location || '';
-      var pomFile  = path_.resolve(location, 'pom.js');
+      var pomFile  = pom.path ? path_.resolve(pom.path) : path_.resolve(location, 'pom.js');
       var files = pom.files || [];
 
       for ( var f = 0 ; f < files.length ; f++ ) {

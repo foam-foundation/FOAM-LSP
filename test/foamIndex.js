@@ -570,6 +570,29 @@ section('FoamIndex — pom files list with a hole');
   }
 })();
 
+// === indexPomFiles_: a pom not named pom.js ===
+// foam3's src/foam-bootstrap-pom.js sits beside src/pom.js and lists
+// foam/lang/FObject. Recording <location>/pom.js as the owner sent
+// go-to-definition to src/pom.js, which no longer has the entry.
+section('FoamIndex — pom location comes from the pom file itself');
+(function() {
+  var os      = require('os');
+  var tmpDir  = fs.mkdtempSync(path.join(os.tmpdir(), 'foam-lsp-pompath-'));
+  var pomPath = path.join(tmpDir, 'boot-pom.js');
+  try {
+    fs.writeFileSync(path.join(tmpDir, 'Boot.js'),
+      "foam.CLASS({ package: 'lsp.pompath', name: 'Boot' });\n");
+    fs.writeFileSync(pomPath,
+      "foam.POM({ name: 'boot', files: [ { name: 'Boot', flags: 'js' } ] });\n");
+    index.indexPomFiles_({ location: tmpDir, path: pomPath, files: [ { name: 'Boot', flags: 'js' } ] }, path, fs);
+    var loc = index.getPomLocationForClass('lsp.pompath.Boot');
+    test(loc && loc.pomFile === pomPath,
+      'getPomLocationForClass: points at the pom that lists the class, got ' + JSON.stringify(loc));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+})();
+
 // === reindexPath: a save refreshes the class→file map ===
 // buildFileIndex walks the POMs once at boot. A class file or pom.js saved
 // after that must land in fileIndex_ through reindexPath, or go-to-definition
