@@ -865,6 +865,11 @@ foam.CLASS({
 
       for ( var f = 0 ; f < files.length ; f++ ) {
         var file = files[f];
+        // A stray comma in a pom's files list leaves a hole: foam3's
+        // src/pom.js has one between PhysicalCircle and lib/net. The build
+        // skips it, so the index must too, or boot dies before the server
+        // starts and the editor sees the process exit.
+        if ( ! file || ! file.name ) continue;
         var filePath = path_.resolve(location, file.name + '.js');
         var fileFlags = this.pomFileFlags_(file, pomFile);
 

@@ -548,6 +548,28 @@ section('FoamIndex — failed grammar parse must not be cached against mtime');
     'of-user found regardless of adapted of shape, got ' + JSON.stringify(users));
 })();
 
+// === indexPomFiles_: a hole in a pom's files list ===
+// `files: [ a, , b ]` loads in the build, which skips the empty slot. Boot
+// indexing read file.name on it and threw, so the server never started.
+section('FoamIndex — pom files list with a hole');
+(function() {
+  var os     = require('os');
+  var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'foam-lsp-hole-'));
+  var fooPath = path.join(tmpDir, 'Foo.js');
+  try {
+    fs.writeFileSync(fooPath, "foam.CLASS({ package: 'lsp.hole', name: 'Foo' });\n");
+    var threw = null;
+    try {
+      index.indexPomFiles_({ location: tmpDir, files: [ , { name: 'Foo', flags: 'js' } ] }, path, fs);
+    } catch ( e ) { threw = e; }
+    test(threw === null, 'indexPomFiles_: a hole in files does not throw' + (threw ? ': ' + threw.message : ''));
+    test(index.getFilePath('lsp.hole.Foo') === fooPath,
+      'indexPomFiles_: the entry after the hole is still indexed');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+})();
+
 // === indexPomFiles_: a pom not named pom.js ===
 // foam3's src/foam-bootstrap-pom.js sits beside src/pom.js and lists
 // foam/lang/FObject. Recording <location>/pom.js as the owner sent
