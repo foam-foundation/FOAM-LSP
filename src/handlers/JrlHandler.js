@@ -11,6 +11,8 @@ foam.CLASS({
   documentation: 'Hover and semantic tokens for FOAM journal (.jrl) files. JRL files contain p({...}), c({...}), r({...}) calls with FOAM model objects.',
 
   requires: [
+    'foam.parse.lsp.CompletionItem',
+    'foam.parse.lsp.Diagnostic',
     'foam.parse.lsp.FoamIndex',
     'foam.parse.lsp.CursorAnalyzer'
   ],
@@ -40,6 +42,29 @@ foam.CLASS({
     {
       name: 'jrlGrammar',
       factory: function() { return foam.parse.lsp.JrlGrammar.create(); }
+    },
+    {
+      name: 'completionItemSupport',
+      documentation: `The client's textDocument.completion.completionItem
+        capability (server.js wires it). Null sends property items without
+        tags — see CompletionItem.toLSPItems.`
+    },
+    {
+      name: 'clientDiagnosticCaps',
+      documentation: `The client's textDocument.publishDiagnostics capability
+        (server.js wires it), read by Diagnostic.toLSP for the DEPRECATED tag
+        on a deprecated key. The pull lane passes its own to handleDiagnostics.
+        Null sends the diagnostic without tags.`
+    },
+    {
+      class: 'Int',
+      name: 'maxJrlGrammarSize',
+      documentation: `Journals longer than this (characters) get no
+        deprecated-key diagnostics: placing one needs the JrlGrammar key
+        harvest, which walks the text a character at a time (about 5.5 s for a
+        4.6 MB data journal), and diagnostics re-run on every edit. Same 1 MB
+        line as DocumentLinkHandler.maxJrlGrammarSize.`,
+      value: 1048576
     }
   ],
 
@@ -208,6 +233,8 @@ foam.CLASS({
           var md = isShort
             ? '**' + prop.name + '** → `' + segment.value + '`\n\n'
             : '**' + segment.value + '**\n\n';
+          var dep = this.index.getDeprecation(classId, prop.name);
+          if ( dep ) md += this.index.deprecationLine(dep) + '\n\n';
           if ( prop.label ) md += 'Label: **' + prop.label + '**\n\n';
           md += 'Type: `' + typeName + '`\n\n';
           if ( prop.documentation ) md += prop.documentation + '\n\n';
@@ -515,13 +542,17 @@ foam.CLASS({
         doc += 'Type: `' + typeName + '`';
         if ( p.documentation ) doc += '\n\n' + p.documentation;
 
+        // A property declared `deprecated:` is struck through in the list.
+        var tags = this.index.getDeprecation(classId, p.name) ?
+          [ this.CompletionItem.TAG_DEPRECATED ] : undefined;
         items.push({
           label: p.name,
           kind: 10,
           detail: typeName + ' — ' + classId,
           documentation: { kind: 'markdown', value: doc },
           insertText: '"' + p.name + '": ',
-          sortText: '!' + p.name
+          sortText: '!' + p.name,
+          tags: tags
         });
 
         // Also suggest shortName if available
@@ -532,7 +563,8 @@ foam.CLASS({
             detail: p.name + ' (' + typeName + ')',
             documentation: { kind: 'markdown', value: 'Short name for `' + p.name + '`\n\n' + doc },
             insertText: '"' + p.shortName + '": ',
-            sortText: '~' + p.shortName
+            sortText: '~' + p.shortName,
+            tags: tags
           });
         }
       }
@@ -548,7 +580,8 @@ foam.CLASS({
         });
       }
 
-      return { isIncomplete: false, items: items };
+      return { isIncomplete: false,
+        items: this.CompletionItem.toLSPItems(items, this.completionItemSupport) };
     },
 
     function detectEmbeddedBlockContext_(text, position) {
@@ -1108,10 +1141,21 @@ foam.CLASS({
       return { isIncomplete: false, items: items };
     },
 
-    function handleDiagnostics(text, opt_uri) {
-      /** Validate JRL entries: unknown classes, unknown properties. Handles single and multi-line. */
+    function handleDiagnostics(text, opt_uri, opt_caps) {
+      /**
+       * Validate JRL entries: unknown classes, unknown properties, deprecated
+       * properties. Handles single and multi-line. opt_caps: the client's
+       * diagnostic capabilities for this answer (the pull lane's own);
+       * defaults to clientDiagnosticCaps.
+       */
       var lines = text.split('\n');
       var diags = [];
+      // Deprecated keys found, and getDeprecation answers memoized per
+      // class + property for this run: each answer costs a stat of the
+      // declaring file, and an 800 KB journal has ~20,000 keys over a
+      // handful of properties.
+      var deprecated = [];
+      deprecated.memo = Object.create(null);
       var processed = {};
 
       for ( var lineNum = 0 ; lineNum < lines.length ; lineNum++ ) {
@@ -1163,14 +1207,60 @@ foam.CLASS({
         // into nested objects whose own `class` resolves — e.g.,
         // `{ "class": "X", "sub": { "class": "Y", "wrongAxiom": "v" } }`
         // flags `wrongAxiom` against Y, not X.
-        this.validateEntryProperties_(entry, cls, classId, lines, startLine, endLine, diags);
+        this.validateEntryProperties_(entry, cls, classId, lines, startLine, endLine, diags, deprecated);
       }
 
+      if ( deprecated.length ) {
+        this.addDeprecatedKeyDiags_(text, deprecated, diags,
+          opt_caps !== undefined ? opt_caps : this.clientDiagnosticCaps, opt_uri);
+      }
       return diags;
     },
 
-    function validateEntryProperties_(entry, cls, classId, lines, startLine, endLine, diags) {
-      /** Walk an entry's own keys and emit Unknown-property diagnostics. */
+    function addDeprecatedKeyDiags_(text, deprecated, diags, caps, opt_uri) {
+      /**
+       * A journal row that sets a property declared `deprecated:` gave no
+       * warning, and journal rows are the code people copy most: a menus.jrl
+       * row is written by copying the one above it. Each such key becomes a
+       * HINT tagged DEPRECATED (struck through) whose message carries the
+       * marker's text, e.g. 'Use SectionedDetailView or VerticalDetailView.'.
+       *
+       * The key's position comes from the JrlGrammar `jrlKey` harvest, the
+       * first key of that name inside the entry's lines. The grammar runs
+       * only when the entries already named a deprecated key, so a journal
+       * with none never pays for the parse.
+       */
+      if ( text.length > this.maxJrlGrammarSize ) {
+        require('../logError').logLspError('deprecated-key diagnostics skipped for ' + ( opt_uri || '' ),
+          new Error(text.length + ' chars is over maxJrlGrammarSize (' + this.maxJrlGrammarSize + ')'));
+        return;
+      }
+      var keys = this.jrlGrammar.collectJrlPositions(text).keys;
+      for ( var i = 0 ; i < deprecated.length ; i++ ) {
+        var d = deprecated[i];
+        for ( var k = 0 ; k < keys.length ; k++ ) {
+          var r = keys[k];
+          if ( r.line < d.startLine || r.line > d.endLine || r.name !== d.key ) continue;
+          diags.push(this.Diagnostic.create({
+            range: { start: { line: r.line, character: r.col },
+                     end:   { line: r.line, character: r.col + r.name.length } },
+            severity: this.Diagnostic.HINT,
+            message: "'" + d.key + "' is deprecated on " + d.dep.owner +
+              ( d.dep.message ? ': ' + d.dep.message : '' ),
+            code: 'deprecated-property',
+            tags: [ this.Diagnostic.DEPRECATED ]
+          }).toLSP(caps));
+          break;
+        }
+      }
+    },
+
+    function validateEntryProperties_(entry, cls, classId, lines, startLine, endLine, diags, deprecated) {
+      /**
+       * Walk an entry's own keys and emit Unknown-property diagnostics.
+       * Keys naming a deprecated property are pushed onto `deprecated` for
+       * addDeprecatedKeyDiags_ to place; `deprecated.memo` caches the lookups.
+       */
       if ( ! entry || ! cls ) return;
 
       for ( var key in entry ) {
@@ -1180,6 +1270,11 @@ foam.CLASS({
 
         if ( ! prop ) {
           this.addUnknownPropertyDiag_(key, classId, lines, startLine, endLine, diags);
+        } else {
+          var mk = classId + ' ' + prop.name;
+          if ( ! ( mk in deprecated.memo ) ) deprecated.memo[mk] = this.index.getDeprecation(classId, prop.name);
+          var dep = deprecated.memo[mk];
+          if ( dep ) deprecated.push({ key: key, dep: dep, startLine: startLine, endLine: endLine });
         }
 
         // Recurse into nested objects that declare their own class.
@@ -1187,7 +1282,7 @@ foam.CLASS({
           var innerId  = value['class'];
           var innerCls = this.index.getClass(innerId);
           if ( innerCls ) {
-            this.validateEntryProperties_(value, innerCls, innerId, lines, startLine, endLine, diags);
+            this.validateEntryProperties_(value, innerCls, innerId, lines, startLine, endLine, diags, deprecated);
           }
         }
         // Arrays may contain inner FObjects with their own `class` too.
@@ -1198,7 +1293,7 @@ foam.CLASS({
               var iId  = item['class'];
               var iCls = this.index.getClass(iId);
               if ( iCls ) {
-                this.validateEntryProperties_(item, iCls, iId, lines, startLine, endLine, diags);
+                this.validateEntryProperties_(item, iCls, iId, lines, startLine, endLine, diags, deprecated);
               }
             }
           }

@@ -79,6 +79,20 @@ foam.CLASS({
       return result;
     },
 
+    function tagDeprecated_(item, classId) {
+      /**
+       * Mark a property item whose property is declared `deprecated:`
+       * (FoamIndex.getDeprecation) with the Deprecated tag, so the editor
+       * strikes it through in the list before anyone picks it.
+       * CompletionItem.toLSPItems drops the tag for a client that did not
+       * declare tagSupport.
+       */
+      if ( this.index.getDeprecation(classId, item.label) ) {
+        item.tags = [ this.CompletionItem.TAG_DEPRECATED ];
+      }
+      return item;
+    },
+
     function featureOn_(flag) {
       /** True when `flag` is enabled, or when no featureConfig is wired at all. */
       return ! this.featureConfig || this.featureConfig.enabled(flag);
@@ -177,14 +191,14 @@ foam.CLASS({
         var typeName = p.cls_ && p.cls_.model_ ? p.cls_.model_.name : 'Property';
         var propDoc = '**' + p.name + '** (`' + typeName + '`)';
         if ( p.documentation ) propDoc += '\n\n' + p.documentation;
-        items.push({
+        items.push(this.tagDeprecated_({
           label: p.name,
           kind: 10,
           detail: typeName,
           labelDetails: { detail: ': ' + typeName },
           documentation: { kind: 'markdown', value: propDoc },
           sortText: '!' + p.name
-        });
+        }, classId));
       }
 
       // Methods — with parameter signatures
@@ -765,14 +779,14 @@ foam.CLASS({
       for ( var i = 0 ; i < props.length ; i++ ) {
         var p = props[i];
         var typeName = p.cls_ && p.cls_.model_ ? p.cls_.model_.name : 'Property';
-        items.push({
+        items.push(this.tagDeprecated_({
           label: p.name,
           kind: 10,
           detail: typeName + ' — ' + classId,
           labelDetails: { detail: ': ' + typeName },
           documentation: p.documentation || '',
           sortText: '!' + p.name
-        });
+        }, classId));
       }
 
       // Methods
@@ -875,7 +889,7 @@ foam.CLASS({
       for ( var i = 0 ; i < props.length ; i++ ) {
         var p = props[i];
         var typeName = p.cls_ && p.cls_.model_ ? p.cls_.model_.name : 'Property';
-        items.push({
+        items.push(this.tagDeprecated_({
           label: p.name,
           kind: 10,
           detail: typeName + ' — ' + classId,
@@ -884,7 +898,7 @@ foam.CLASS({
           insertText: p.name + ': ',
           sortText: '!' + p.name,
           preselect: i === 0
-        });
+        }, classId));
       }
       return { isIncomplete: false, items: items };
     }

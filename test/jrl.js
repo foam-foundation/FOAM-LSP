@@ -1774,6 +1774,69 @@ try { fs.rmSync(sharedDir, { recursive: true, force: true }); } catch ( e ) {}
 // Driven through the real server because the bug IS the wiring — the handler
 // and the index were both already correct.
 var os = require('os');
+// === Deprecated properties in journal rows (FOAM-LSP #5) ===
+// A journal row is the code people copy most, so a key naming a property
+// declared `deprecated:` is a HINT tagged DEPRECATED (struck through), placed
+// by the JrlGrammar `jrlKey` harvest. StepWizardConfig.wizardView carries
+// `deprecated: true`.
+section('JRL — deprecated property keys');
+(function() {
+  var g = foam.parse.lsp.JrlGrammar.create();
+  var ksrc = 'p({"class":"X","label":"Note: a","wizardView":"v",\n' +
+    '  "foam.core.X": 1, bare : 2, "a b": 3, "s":"""k":"""})\n';
+  var keys = g.collectJrlPositions(ksrc).keys.map(function(r) { return r.name; });
+  test(JSON.stringify(keys) === '["class","label","wizardView","bare","s"]',
+    'JrlGrammar keys: quoted and bare keys, not values, dotted or spaced keys, or text inside strings: ' + JSON.stringify(keys));
+  test(g.collectJrlPositions(ksrc).keys.every(function(r) { return ksrc.substring(r.startPos, r.endPos) === r.name; }),
+    'JrlGrammar keys: spans cover the identifier only');
+
+  var ALL = { tagSupport: { valueSet: [ 1, 2 ] } };
+  var jh = foam.parse.lsp.handlers.JrlHandler.create({ index: index });
+  var row = 'p({"class":"foam.u2.wizard.StepWizardConfig","allowSkipping":true,"wizardView":"x"})';
+  function dep(ds) { return ds.filter(function(d) { return d.code === 'deprecated-property'; }); }
+  var d1 = dep(jh.handleDiagnostics(row, '', ALL));
+  var at = row.indexOf('wizardView');
+  test(d1.length === 1 && d1[0].range.start.line === 0 && d1[0].range.start.character === at &&
+       d1[0].range.end.character === at + 'wizardView'.length,
+    'jrl diagnostics: the wizardView key is flagged on its own span (allowSkipping is not)');
+  test(d1.length === 1 && d1[0].severity === 4 && JSON.stringify(d1[0].tags) === '[2]' &&
+       d1[0].message.indexOf('foam.u2.wizard.StepWizardConfig') !== -1,
+    'jrl diagnostics: HINT tagged DEPRECATED, naming the declaring class');
+  var dNone = dep(jh.handleDiagnostics(row, ''));
+  test(dNone.length === 1 && ! ( 'tags' in dNone[0] ),
+    'jrl diagnostics: no client caps, still reported without tags');
+  jh.clientDiagnosticCaps = ALL;
+  test(JSON.stringify(dep(jh.handleDiagnostics(row, ''))[0].tags) === '[2]',
+    'jrl diagnostics: clientDiagnosticCaps is the default when the caller passes none');
+  jh.clientDiagnosticCaps = null;
+
+  var multi = 'p({\n  "class": "foam.u2.wizard.StepWizardConfig",\n  wizardView: "x"\n})\n';
+  var d2 = dep(jh.handleDiagnostics(multi, '', ALL));
+  test(d2.length === 1 && d2[0].range.start.line === 2 && d2[0].range.start.character === 2,
+    'jrl diagnostics: a bare key in a multi-line entry is flagged on its own line');
+  test(dep(jh.handleDiagnostics('p({"class":"foam.u2.wizard.StepWizardConfig","allowSkipping":true})', '', ALL)).length === 0,
+    'jrl diagnostics: a row with no deprecated key gets none');
+  var capped = foam.parse.lsp.handlers.JrlHandler.create({ index: index, maxJrlGrammarSize: 10 });
+  test(dep(capped.handleDiagnostics(row, '', ALL)).length === 0,
+    'jrl diagnostics: over maxJrlGrammarSize the key is not placed');
+
+  var hv = jh.handleHover(row, { line: 0, character: at + 2 });
+  test(hv && hv.contents.value.indexOf('**Deprecated.**') !== -1,
+    'jrl hover: a deprecated key says Deprecated');
+
+  var comp = 'p({"class":"foam.u2.wizard.StepWizardConfig", ';
+  function item(items, label) { return items.filter(function(i) { return i.label === label; })[0]; }
+  var plainItems = jh.handleCompletion(comp, { line: 0, character: comp.length }).items;
+  test(item(plainItems, 'wizardView') && ! item(plainItems, 'wizardView').tags,
+    'jrl completion: no tagSupport, no tag on the wire');
+  jh.completionItemSupport = { tagSupport: { valueSet: [ 1 ] } };
+  var tagItems = jh.handleCompletion(comp, { line: 0, character: comp.length }).items;
+  test(item(tagItems, 'wizardView') && JSON.stringify(item(tagItems, 'wizardView').tags) === '[1]',
+    'jrl completion: wizardView carries the Deprecated tag');
+  test(item(tagItems, 'allowSkipping') && ! item(tagItems, 'allowSkipping').tags,
+    'jrl completion: a property with no marker carries no tag');
+})();
+
 var jrlSaveDone = h.withServerLane(async function() {
   var origWrite = process.stdout.write;
   var wsDir = null;
