@@ -71,30 +71,29 @@ if ( arg('--diff') != null ) {
   params.paths = changed.filter(function(p, i) { return changed.indexOf(p) === i; });
 }
 
-var result;
-try {
-  result = handler.lint(params);
-} catch (e) {
+handler.lint(params).then(report, function(e) {
   console.error('lint-cli: ' + e.message);
   process.exit(2);
-}
+});
 
-var findings = result.findings;
-var errors   = findings.filter(function(f) { return f.severity === 'error'; }).length;
-var warns    = findings.length - errors;
+function report(result) {
+  var findings = result.findings;
+  var errors   = findings.filter(function(f) { return f.severity === 'error'; }).length;
+  var warns    = findings.length - errors;
 
-if ( arg('--format') === 'json' ) {
-  process.stdout.write(JSON.stringify({ findings: findings, errors: errors, warns: warns }, null, 2) + '\n');
-} else {
-  for ( var i = 0 ; i < findings.length ; i++ ) {
-    var f = findings[i];
-    process.stdout.write(
-      f.severity.toUpperCase().padEnd(6) + ' ' + f.check.padEnd(16) + ' ' +
-      path.relative(process.cwd(), f.path) + ':' + f.line + '\n' +
-      '       ' + f.message + '\n' +
-      ( f.fix ? '       fix: ' + f.fix + '\n' : '' ));
+  if ( arg('--format') === 'json' ) {
+    process.stdout.write(JSON.stringify({ findings: findings, errors: errors, warns: warns }, null, 2) + '\n');
+  } else {
+    for ( var i = 0 ; i < findings.length ; i++ ) {
+      var f = findings[i];
+      process.stdout.write(
+        f.severity.toUpperCase().padEnd(6) + ' ' + f.check.padEnd(16) + ' ' +
+        path.relative(process.cwd(), f.path) + ':' + f.line + '\n' +
+        '       ' + f.message + '\n' +
+        ( f.fix ? '       fix: ' + f.fix + '\n' : '' ));
+    }
+    process.stdout.write('---\n' + errors + ' error(s), ' + warns + ' warn(s)\n');
   }
-  process.stdout.write('---\n' + errors + ' error(s), ' + warns + ' warn(s)\n');
-}
 
-process.exit(errors > 0 || ( has('--strict') && warns > 0 ) ? 1 : 0);
+  process.exit(errors > 0 || ( has('--strict') && warns > 0 ) ? 1 : 0);
+}

@@ -19,7 +19,7 @@ foam.CLASS({
     direction (Direction B) is skipped, and without 'pomValidator'
     pom-membership returns no findings.`,
 
-  requires: [ 'foam.parse.lsp.JrlLoader' ],
+  requires: [ 'foam.parse.lsp.FoamIndex', 'foam.parse.lsp.JrlLoader' ],
 
   constants: {
     // Canonical list lives in ../lintChecks.js — shared with the MCP
@@ -48,37 +48,39 @@ foam.CLASS({
       factory: function() { return this.JrlLoader.create(); }
     },
     {
+      // The workspace root the LSP was started on, resolved the way
+      // findWorkspaceJrlFiles_ resolves the journals it returns, so
+      // root-relative comparisons hold when the root is a symlink.
       name: 'root',
-      factory: function() { return process.cwd(); }
+      factory: function() {
+        var root = globalThis.__foamLSPRoots__.project;
+        try { return require('fs').realpathSync(root); } catch (e) { return root; }
+      }
     }
   ],
 
   methods: [
     function findJrlFiles_(basenames) {
-      /** One bounded walk from root collecting files with any of these exact
-          basenames: { basename: [absolute paths] }, every name present.
-          Same skip rules as PomValidator.walkSourceTree_. */
-      var fs = require('fs');
+      /** The workspace's journals with any of these exact basenames:
+          { basename: [absolute paths] }, every name present. The walk is
+          FoamIndex.findWorkspaceJrlFiles_, the one the usage indexes use, so
+          lint and the index agree on which journals exist. */
       var path = require('path');
       var out = {};
       for ( var b = 0 ; b < basenames.length ; b++ ) out[basenames[b]] = [];
-      var stack = [ this.root ];
-      while ( stack.length ) {
-        var dir = stack.pop();
-        var entries;
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-        catch (e) { require('../logError').logLspError('lint: read dir ' + dir, e); continue; }
-        for ( var i = 0 ; i < entries.length ; i++ ) {
-          var ent = entries[i];
-          if ( ent.name.charAt(0) === '.' )             continue;
-          if ( ent.name === 'node_modules' )            continue;
-          if ( ent.name === 'build' || ent.name === 'out' ) continue;
-          var full = path.join(dir, ent.name);
-          if ( ent.isDirectory() ) stack.push(full);
-          else if ( ent.isFile() && out.hasOwnProperty(ent.name) ) out[ent.name].push(full);
-        }
+      var walker = this.index || this.FoamIndex.create();
+      var all = walker.findWorkspaceJrlFiles_(this.root);
+      for ( var i = 0 ; i < all.length ; i++ ) {
+        var base = path.basename(all[i]);
+        if ( out.hasOwnProperty(base) ) out[base].push(all[i]);
       }
       return out;
+    },
+
+    function yield_() {
+      /** Lets the server answer queued requests (hover, completion) before
+          the next chunk of lint work runs. */
+      return new Promise(function(resolve) { setImmediate(resolve); });
     },
 
     function loadEntries_(filePath) {
@@ -270,7 +272,7 @@ foam.CLASS({
       });
     },
 
-    function lint(params) {
+    async function lint(params) {
       params = params || {};
       var checks = ( params.checks && params.checks.length ) ? params.checks : this.ALL_CHECKS;
       var allChecks = this.ALL_CHECKS;
@@ -279,16 +281,27 @@ foam.CLASS({
         throw new Error('unknown check(s): ' + unknown.join(', ') + ' — valid: ' + this.ALL_CHECKS.join(', '));
       }
 
-      // One workspace walk for every journal the selected checks read.
+      // One workspace walk for every journal the selected checks read. Each
+      // check below runs as its own chunk, with a yield between them so the
+      // JSON-RPC loop keeps serving requests while a lint is in progress.
       var names = [];
       if ( checks.indexOf('rule-group') !== -1 )   names = names.concat(this.CHECK_INPUTS['rule-group']);
       if ( checks.indexOf('strategy-ref') !== -1 ) names = names.concat(this.CHECK_INPUTS['strategy-ref']);
       var files = names.length ? this.findJrlFiles_(names) : {};
 
       var findings = [];
-      if ( checks.indexOf('pom-membership') !== -1 ) findings = findings.concat(this.checkPomMembership_());
-      if ( checks.indexOf('rule-group') !== -1 )     findings = findings.concat(this.checkRuleGroups_(files));
-      if ( checks.indexOf('strategy-ref') !== -1 )   findings = findings.concat(this.checkStrategyRefs_(params.strategyTargets, files));
+      if ( checks.indexOf('pom-membership') !== -1 ) {
+        await this.yield_();
+        findings = findings.concat(this.checkPomMembership_());
+      }
+      if ( checks.indexOf('rule-group') !== -1 ) {
+        await this.yield_();
+        findings = findings.concat(this.checkRuleGroups_(files));
+      }
+      if ( checks.indexOf('strategy-ref') !== -1 ) {
+        await this.yield_();
+        findings = findings.concat(this.checkStrategyRefs_(params.strategyTargets, files));
+      }
 
       if ( params.scope === 'paths' && Array.isArray(params.paths) ) {
         findings = this.scopeToPaths_(findings, params.paths);

@@ -2459,9 +2459,10 @@ foam.CLASS({
       this.jrlUsageIndex_ = { byTarget: byTarget };
     },
 
-    function findWorkspaceJrlFiles_() {
+    function findWorkspaceJrlFiles_(opt_root) {
       /**
-       * Every *.jrl under the workspace root; node_modules, build and
+       * Every *.jrl under the workspace root (opt_root, default the project
+       * root); node_modules, build and
        * dot-directories skipped.
        *
        * Deliberately NOT getJournalDirs(). That one answers "which
@@ -2519,7 +2520,7 @@ foam.CLASS({
           }
         }
       }
-      var root = globalThis.__foamLSPRoots__.project;
+      var root = opt_root || globalThis.__foamLSPRoots__.project;
       try { seenReal[fs_.realpathSync(root)] = true; } catch (e) {}
       walk(root);
       return out;
