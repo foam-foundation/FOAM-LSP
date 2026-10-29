@@ -282,6 +282,60 @@ var classCompJrl = 'p({"class":""})';
 var classCompResult = jrlHandler.handleCompletion(classCompJrl, { line: 0, character: 12 }, '');
 test(classCompResult == null || true, 'JRL completion: class name completion attempted');
 
+// Issue #4: typing the dot in `"class": "foam.` switched the list from class
+// ids to the property names of the enclosing class, because the class-value
+// check only accepted word characters after the quote.
+var jg = jrlHandler.jrlGrammar;
+test(jg.openClassValue('    "class": "foam.co') === 'foam.co',
+  'JRL class value: a dotted partial is the class value being typed');
+test(jg.openClassValue('"class":"') === '',
+  'JRL class value: an empty value right after the quote');
+test(jg.openClassValue('    class: "foam.') === 'foam.',
+  'JRL class value: the bare-key form counts too');
+test(jg.openClassValue('"subclass": "foam') === null,
+  'JRL class value: a key that only ends in "class" is not the class key');
+test(jg.openClassValue('"label": "my class: x') === null,
+  'JRL class value: "class:" inside another string is not a key');
+test(jg.openClassValue('"class": "foam.X",') === null,
+  'JRL class value: a closed value is not being typed');
+
+function lastLineCompletion(src) {
+  var ls = src.split('\n');
+  var pos = { line: ls.length - 1, character: ls[ls.length - 1].length };
+  return { pos: pos, res: jrlHandler.handleCompletion(src, pos, '') };
+}
+var nestedClassSrc = 'p({\n  "class": "foam.core.menu.Menu",\n  "handler": {\n' +
+  '    "class": "foam.core.menu.DAOMenu2",\n    "config": {\n      "class": "foam.';
+var afterDot = lastLineCompletion(nestedClassSrc);
+var afterDotLabels = afterDot.res.items.map(function(i) { return i.label; });
+test(afterDotLabels.length > 0 && afterDotLabels.every(function(l) { return l.indexOf('foam.') !== -1; }),
+  'JRL completion after the dot: lists class ids, not property names (got ' +
+    afterDotLabels.slice(0, 3).join(', ') + ')');
+var afterDotEdit = afterDot.res.items[0] && afterDot.res.items[0].textEdit;
+test(afterDotEdit && afterDotEdit.range.start.character === afterDot.pos.character - 'foam.'.length &&
+     afterDotEdit.range.end.character === afterDot.pos.character &&
+     afterDot.res.items[0].filterText === afterDot.res.items[0].label,
+  'JRL completion after the dot: the edit replaces the whole partial, so the dot is not duplicated: ' +
+    JSON.stringify(afterDotEdit));
+
+var comicsRes = lastLineCompletion(nestedClassSrc + 'comics.').res;
+test(index.getClass('foam.comics.v2.DAOControllerConfig') &&
+     comicsRes.items.some(function(i) { return i.label === 'foam.comics.v2.DAOControllerConfig'; }),
+  'JRL completion: "foam.comics." offers foam.comics.v2.DAOControllerConfig');
+
+var topRes = lastLineCompletion('p({"class":"foam.comics.').res;
+test(topRes.items.some(function(i) { return i.label === 'foam.comics.v2.DAOControllerConfig'; }),
+  'JRL completion: a new entry\'s own class value lists classes before that class resolves');
+
+// Inside a client block the edit range must land in document coordinates.
+var clientClassSrc = 'p({\n  "client": """{ "class": "foam.comics.v2.DAOCon';
+var clientClass = lastLineCompletion(clientClassSrc);
+var clientEdit = clientClass.res.items[0] && clientClass.res.items[0].textEdit;
+test(clientEdit && clientEdit.range.start.line === 1 &&
+     clientEdit.range.start.character === clientClass.pos.character - 'foam.comics.v2.DAOCon'.length,
+  'JRL completion in a client block: the class-id edit range is in document coordinates: ' +
+    JSON.stringify(clientEdit));
+
 // ========== JRL Diagnostics ==========
 
 
