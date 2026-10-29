@@ -98,8 +98,11 @@ var FIXTURE_JRLS = [];
 })(path.join(__dirname, 'fixtures'));
 var FoamIndexProto_  = foam.parse.lsp.FoamIndex.prototype;
 var workspaceWalk_   = FoamIndexProto_.findWorkspaceJrlFiles_;
-FoamIndexProto_.findWorkspaceJrlFiles_ = function() {
-  var out = workspaceWalk_.call(this);
+FoamIndexProto_.findWorkspaceJrlFiles_ = function(opt_root) {
+  var out = workspaceWalk_.call(this, opt_root);
+  // A caller that names its own root (LintHandler over a temp tree) wants
+  // that tree and nothing else.
+  if ( opt_root ) return out;
   return out.concat(FIXTURE_JRLS.filter(function(p) { return out.indexOf(p) === -1; }));
 };
 

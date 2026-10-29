@@ -100,3 +100,16 @@ test(diags.every(function(d) { return d.range && typeof d.message === 'string'; 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 })();
+
+// validateAsync is validate() with yields in the walk, so a lint on the
+// JSON-RPC thread lets queued requests run: same result, and a callback
+// queued before it finishes fires before it does.
+module.exports.done = (async function() {
+  var interleaved = 0;
+  var pending = validator.validateAsync();
+  setImmediate(function() { interleaved++; });
+  var asyncResult = await pending;
+  test(JSON.stringify(asyncResult) === JSON.stringify(result),
+    'validateAsync returns the same result as validate');
+  test(interleaved === 1, 'validateAsync yields to the event loop before it resolves');
+})();

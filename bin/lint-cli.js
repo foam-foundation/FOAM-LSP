@@ -92,34 +92,33 @@ if ( arg('--diff') != null ) {
   params.paths = changed.filter(function(p, i) { return changed.indexOf(p) === i; });
 }
 
-var result;
-try {
-  result = handler.lint(params);
-} catch (e) {
+handler.lint(params).then(report, function(e) {
   console.error('lint-cli: ' + e.message);
   process.exit(2);
-}
+});
 
-var findings = result.findings;
-var errors   = findings.filter(function(f) { return f.severity === 'error'; }).length;
-var warns    = findings.length - errors;
+function report(result) {
+  var findings = result.findings;
+  var errors   = findings.filter(function(f) { return f.severity === 'error'; }).length;
+  var warns    = findings.length - errors;
 
-var output = '';
-if ( arg('--format') === 'json' ) {
-  output = JSON.stringify({ findings: findings, errors: errors, warns: warns }, null, 2) + '\n';
-} else {
-  for ( var i = 0 ; i < findings.length ; i++ ) {
-    var f = findings[i];
-    output += (
-      f.severity.toUpperCase().padEnd(6) + ' ' + f.check.padEnd(16) + ' ' +
-      path.relative(process.cwd(), f.path) + ':' + f.line + '\n' +
-      '       ' + f.message + '\n' +
-      ( f.fix ? '       fix: ' + f.fix + '\n' : '' ));
+  var output = '';
+  if ( arg('--format') === 'json' ) {
+    output = JSON.stringify({ findings: findings, errors: errors, warns: warns }, null, 2) + '\n';
+  } else {
+    for ( var i = 0 ; i < findings.length ; i++ ) {
+      var f = findings[i];
+      output += (
+        f.severity.toUpperCase().padEnd(6) + ' ' + f.check.padEnd(16) + ' ' +
+        path.relative(process.cwd(), f.path) + ':' + f.line + '\n' +
+        '       ' + f.message + '\n' +
+        ( f.fix ? '       fix: ' + f.fix + '\n' : '' ));
+    }
+    output += '---\n' + errors + ' error(s), ' + warns + ' warn(s)\n';
   }
-  output += '---\n' + errors + ' error(s), ' + warns + ' warn(s)\n';
-}
 
-// exitCode, not exit(): process.exit() straight after a large write to a pipe
-// drops what the pipe has not yet taken (macOS pipes take 64 KiB at a time).
-process.exitCode = errors > 0 || ( has('--strict') && warns > 0 ) ? 1 : 0;
-process.stdout.write(output);
+  // exitCode, not exit(): process.exit() straight after a large write to a pipe
+  // drops what the pipe has not yet taken (macOS pipes take 64 KiB at a time).
+  process.exitCode = errors > 0 || ( has('--strict') && warns > 0 ) ? 1 : 0;
+  process.stdout.write(output);
+}
