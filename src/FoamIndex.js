@@ -696,6 +696,30 @@ foam.CLASS({
       return out;
     },
 
+    function getRelationshipProperty(rel, side) {
+      /** What a foam.RELATIONSHIP's `sourceProperty` / `targetProperty`
+       *  object (side 'source' / 'target') becomes, for `rel`, the raw model
+       *  FileModelCache captured: { hostClassId, propertyClassId }, or null
+       *  when `rel` is not a relationship. The host is the class the property
+       *  is installed on, so code inside the object runs on it. The property
+       *  class decides which axiom keys the object accepts:
+       *    target, 1:*  foam.lang.Reference (Relationship.js:285-290)
+       *    source, 1:*  foam.dao.OneToManyRelationshipProperty (:240-247, :757-760)
+       *    either, *:*  foam.dao.ManyToManyRelationshipProperty (:252-261, :295-304, :971-974)
+       *  Each is created first and the object copied over it, and copyFrom
+       *  drops keys the class lacks (foam/lang/FObject.js:986-1006), so a
+       *  `class:` written in the object changes nothing. Cardinality
+       *  defaults to '1:*' (Relationship.js:62-68). */
+      if ( ! rel || rel.type_ !== 'RELATIONSHIP' ) return null;
+      var manyToMany = rel.cardinality === '*:*';
+      if ( side === 'source' ) {
+        return { hostClassId: rel.sourceModel || null, propertyClassId: manyToMany ?
+          'foam.dao.ManyToManyRelationshipProperty' : 'foam.dao.OneToManyRelationshipProperty' };
+      }
+      return { hostClassId: rel.targetModel || null, propertyClassId: manyToMany ?
+        'foam.dao.ManyToManyRelationshipProperty' : 'foam.lang.Reference' };
+    },
+
     function getPropertyInfo(classId, propName) {
       /** General property resolver for value validation/completion. Returns
        *  { found, propClassName, isEnum, enumId, enumValues, primitiveKind }.

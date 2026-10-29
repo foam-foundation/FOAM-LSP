@@ -120,14 +120,14 @@ foam.CLASS({
         instKey: bucket(), instValue: bucket(), memberRef: bucket(), u2Call: bucket(),
         headEntry: bucket(), requiresEntry: bucket(),
         modelCall: [], modelName: [], modelPackage: [], modelRefines: [],
-        propertyDef: [], methodDef: [],
+        propertyDef: [], methodDef: [], relationshipSource: [], relationshipTarget: [],
         callClose: [], bodyClose: [], propClose: [], methodClose: [], close: []
       };
       // Kinds that record an EXTENT rather than a name. A name-keyed record
       // would key a whole `foam.CLASS({...})` by its own text, so these are
       // plain lists of { line, col, startPos, endPos }, one per span start.
       var SPAN = { modelCall: true, modelName: true, modelPackage: true, modelRefines: true,
-        propertyDef: true, methodDef: true,
+        propertyDef: true, methodDef: true, relationshipSource: true, relationshipTarget: true,
         callClose: true, bodyClose: true, propClose: true, methodClose: true, close: true };
       var spanAt = {};
       // Kinds that allow multiple occurrences per name. Single-occurrence
@@ -380,6 +380,36 @@ foam.CLASS({
           callSpan: { startPos: span.startPos, endPos: span.endPos }, entries: entries });
       }
       return out;
+    },
+
+    function collectRelationshipProperties(text) {
+      /**
+       * The `sourceProperty: { ... }` and `targetProperty: { ... }` objects of
+       * every foam.RELATIONSHIP in `text`, as [ { side, startPos, endPos } ]
+       * sorted by start; side is 'source' or 'target' and the span runs from
+       * the object's `{` to where it ends. Each object is a property spec
+       * installed on another class, so handlers treat its inside as a
+       * property definition of that class.
+       */
+      var map = this.collectAxiomPositions(text);
+      var out = [];
+      map.relationshipSource.forEach(function(r) {
+        out.push({ side: 'source', startPos: r.startPos, endPos: r.endPos });
+      });
+      map.relationshipTarget.forEach(function(r) {
+        out.push({ side: 'target', startPos: r.startPos, endPos: r.endPos });
+      });
+      return out.sort(function(a, b) { return a.startPos - b.startPos; });
+    },
+
+    function relationshipPropertyAt(text, offset) {
+      /** The collectRelationshipProperties() span holding `offset`, or null.
+       *  The two objects never nest, so at most one holds it. */
+      var spans = this.collectRelationshipProperties(text);
+      for ( var i = 0 ; i < spans.length ; i++ ) {
+        if ( offset >= spans[i].startPos && offset < spans[i].endPos ) return spans[i];
+      }
+      return null;
     },
 
     function findAxiomPosition(text, kind, name) {
@@ -1250,6 +1280,8 @@ foam.CLASS({
           P.sym('cssEntry'),
           P.sym('sourceModelEntry'),
           P.sym('targetModelEntry'),
+          P.sym('sourcePropertyEntry'),
+          P.sym('targetPropertyEntry'),
           P.sym('classTypedSlotEntry'),
           P.sym('topLevelKey'),
           P.sym('genericEntry')
@@ -1286,6 +1318,18 @@ foam.CLASS({
           quoted(P.sym('classRef'))),
         targetModelEntry: P.seq(key('targetModel', topHint('targetModel')), wsc, P.literal(':'), wsc,
           quoted(P.sym('classRef'))),
+
+        // sourceProperty/targetProperty: foam.RELATIONSHIP installs each
+        // object as a property on the source/target model, so its inside
+        // parses as a property definition (the same propertyObject rule) and
+        // completion offers property keys there. The object is a span so a
+        // handler can tell which model the property lands on — see
+        // collectRelationshipProperties. Not a 'propertyDef': it is no member
+        // of the relationship itself.
+        sourcePropertyEntry: P.seq(key('sourceProperty', topHint('sourceProperty')), wsc, P.literal(':'), wsc,
+          P.msg(P.sym('propertyObject'), { kind: 'relationshipSource' })),
+        targetPropertyEntry: P.seq(key('targetProperty', topHint('targetProperty')), wsc, P.literal(':'), wsc,
+          P.msg(P.sym('propertyObject'), { kind: 'relationshipTarget' })),
 
         // Generic axiom-class-typed slot: `<key>: 'foo.X'` where <key> is
         // the name of any property defined as Class/Reference/FObjectProperty/

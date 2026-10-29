@@ -651,6 +651,36 @@ var indentBody = [
     'Indented model: expressions are still checked with the call at column ' + pad);
 });
 
+// A foam.RELATIONSHIP's sourceProperty / targetProperty is installed on the
+// source / target model, so its expression arguments name that model's
+// properties, not the relationship's (#10).
+function relDiagSrc(target, view) {
+  return "foam.RELATIONSHIP({\n" +
+    "  sourceModel: 'foam.core.auth.Group',\n" +
+    "  targetModel: '" + target + "',\n" +
+    "  forwardName: 'users',\n" +
+    "  inverseName: 'group',\n" +
+    "  targetProperty: {\n" +
+    "    view: { class: '" + view + "' },\n" +
+    "    expression: function(firstName, noSuchUserProp) { return firstName; }\n" +
+    "  }\n" +
+    "});\n";
+}
+var relDiags = diagHandler.handle(relDiagSrc('foam.core.auth.User', 'foam.u2.view.ReferenceView'),
+  'file:///rel/DiagRel.js');
+var relMissing = relDiags.filter(function(d) { return d.message.indexOf('does not exist') !== -1; });
+test(relMissing.length === 1 && relMissing[0].message ===
+  "Property 'noSuchUserProp' does not exist on foam.core.auth.User",
+  'Relationship targetProperty: expression args are checked against the target model');
+var relUnknownHost = diagHandler.handle(relDiagSrc('foam.parse.lsp.test.NoSuchTarget', 'foam.u2.view.ReferenceView'),
+  'file:///rel/DiagRelUnknown.js');
+test(! relUnknownHost.some(function(d) { return d.message.indexOf('does not exist') !== -1; }),
+  'Relationship targetProperty: an unregistered target model leaves expression args unchecked');
+var relBadView = diagHandler.handle(relDiagSrc('foam.core.auth.User', 'foam.u2.view.NoSuchRelView'),
+  'file:///rel/DiagRelView.js');
+test(relBadView.some(function(d) { return d.message === "Unknown class: 'foam.u2.view.NoSuchRelView'"; }),
+  'Relationship targetProperty: an unknown view class is flagged as in a property');
+
 // === POM COMPLETIONS ===
 
 
