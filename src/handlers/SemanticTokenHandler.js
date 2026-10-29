@@ -313,7 +313,7 @@ foam.CLASS({
        *
        * Highlights:
        * - $tokenName        → variable (2)
-       * - ^ and ^name       → type (0)
+       * - <<, <<name, ^, ^name → type (0)
        * - CSS property names → keyword (3)
        * - CSS values         → string (4)
        * - Numbers with units → number (6)

@@ -1,0 +1,23 @@
+{
+  "comment": "FOAM additions to the CSS inside a css: block. foam-js.tmLanguage.json hands the block to source.css as region meta.foam.css-block.js; this grammar is injected into that region, so it also reaches selectors source.css has already opened (`.x <<y`, `:not(<<y)`). FOAM-only CSS syntax belongs here, in one place.",
+  "scopeName": "foam.css.injection",
+  "injectionSelector": "L:meta.foam.css-block.js -comment -string -meta.property-value.css -meta.attribute-selector.css",
+  "patterns": [
+    { "include": "#self-class-selector" }
+  ],
+  "repository": {
+    "self-class-selector": {
+      "comment": "FOAM's own-class shorthand. foam.u2.CSS expandCSS rewrites `<<` (and the older `^`) to the class's CSS class, so `<<title` in foam.u2.ActionView means `.foam-u2-ActionView-title`; the suffix takes the characters expandCSS joins with a dash (letters, digits, `-`, `_`). source.css has no rule for either, so without this the token stays plain and a selector it starts (`<<x:hover`) is never opened. The `^` of `[class^=x]` is excluded by the injection selector. The region ends where source.css ends a selector.",
+      "name": "meta.selector.css",
+      "begin": "(<<|\\^)([\\w-]+)?",
+      "beginCaptures": {
+        "0": { "name": "entity.other.attribute-name.class.foam.css" },
+        "1": { "name": "punctuation.definition.entity.foam.css" }
+      },
+      "end": "(?=\\s*(?:/|@|\\{|\\)|$))",
+      "patterns": [
+        { "include": "source.css#selector-innards" }
+      ]
+    }
+  }
+}

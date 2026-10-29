@@ -564,6 +564,7 @@ FOAM-LSP/
     │   ├── install.sh
     │   ├── resources/foam-icon.svg
     │   ├── syntaxes/foam-js.tmLanguage.json
+    │   ├── syntaxes/foam-css.tmLanguage.json
     │   └── src/
     │       ├── extension.ts
     │       ├── FoamTreeProvider.ts
