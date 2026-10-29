@@ -799,6 +799,15 @@ foam.CLASS({
       /** Clear cache for a class and dependents. */
       delete this.cache_[classId];
       delete this.cache_.propertyTypes;
+      delete this.cache_.interfaceIds;
+
+      // getImplementors, getRequirers and getOfUsers cache one registry scan
+      // per target id under impl_/req_/of_. A save can add or drop a class
+      // that implements, requires or types any target, so every such entry
+      // is stale, not only the saved class's own.
+      for ( var key of Object.keys(this.cache_) ) {
+        if ( key.startsWith('impl_') || key.startsWith('req_') || key.startsWith('of_') ) delete this.cache_[key];
+      }
       this.invalidateSymbolIndex_();
     },
 
