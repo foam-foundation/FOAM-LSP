@@ -12,7 +12,7 @@ FOAM Language Server.
 - **Diagnostics** — unknown classes, wrong property types, incorrect Java imports
 - **Document Symbols** — outline of properties, methods, actions
 - **Workspace Analysis** — sidebar panel with full codebase scan, flag toggles, pattern grouping
-- **Semantic Tokens** — highlights resolved class references and typed variables
+- **Semantic Tokens** — highlights resolved class references and typed variables. In u2 view code, `start()`/`end()` share one colour, distinct from `add()`/`tag()`, from `addClass()`/`enableClass()`/`style()`/`attrs()` and from `dynamic()`. Recolour them with `editor.semanticTokenColorCustomizations` rules on `*.u2Pair`, `*.u2Content`, `*.u2Styling`, `*.u2Reactive`
 - **CodeLens** — "N translations missing" above a `messages:` entry (click to translate); optionally "N subclasses" above each class
 - **New Class** — `FOAM: New Class` scaffolds a class file and registers it in the nearest `pom.js`, as one undoable edit
 - **Status Bar** — boot progress, the active translation model, and a menu to restart the server or open its log
@@ -79,6 +79,7 @@ editors/vscode/
   syntaxes/
     foam-jrl.tmLanguage.json   # FOAM Journal syntax highlighting
     foam-js.tmLanguage.json    # Java injection grammar for javaCode blocks
+    foam-css.tmLanguage.json   # FOAM css: additions (<< and ^ selectors)
   resources/
     foam-icon.svg          # Sidebar icon
   package.json             # Extension manifest

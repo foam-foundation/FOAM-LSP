@@ -19,7 +19,7 @@ foam.CLASS({
     direction (Direction B) is skipped, and without 'pomValidator'
     pom-membership returns no findings.`,
 
-  requires: [ 'foam.parse.lsp.JrlLoader' ],
+  requires: [ 'foam.parse.lsp.FoamIndex', 'foam.parse.lsp.JrlLoader' ],
 
   constants: {
     // Canonical list lives in ../lintChecks.js — shared with the MCP
@@ -37,6 +37,15 @@ foam.CLASS({
     CHECK_INPUTS: {
       'rule-group':     [ 'rules.jrl', 'ruleGroups.jrl' ],
       'strategy-ref':   [ 'strategyReferences.jrl' ]
+    },
+    // A journal row may leave "class" out: the DAO the journal feeds then
+    // reads it as that DAO's `of`. foam3's src/foam/core/grant/strategyReferences.jrl
+    // has 9 such rows, and several ruleGroups.jrl files have no "class" at
+    // all. The DAOs: strategyDAO (src/foam/strategy/services.jrl) and
+    // ruleGroupDAO (src/foam/core/ruler/services.jrl).
+    JOURNAL_OF: {
+      'ruleGroups.jrl':         'foam.core.ruler.RuleGroup',
+      'strategyReferences.jrl': 'foam.strategy.StrategyReference'
     }
   },
 
@@ -48,37 +57,39 @@ foam.CLASS({
       factory: function() { return this.JrlLoader.create(); }
     },
     {
+      // The workspace root the LSP was started on, resolved the way
+      // findWorkspaceJrlFiles_ resolves the journals it returns, so
+      // root-relative comparisons hold when the root is a symlink.
       name: 'root',
-      factory: function() { return process.cwd(); }
+      factory: function() {
+        var root = globalThis.__foamLSPRoots__.project;
+        try { return require('fs').realpathSync(root); } catch (e) { return root; }
+      }
     }
   ],
 
   methods: [
     function findJrlFiles_(basenames) {
-      /** One bounded walk from root collecting files with any of these exact
-          basenames: { basename: [absolute paths] }, every name present.
-          Same skip rules as PomValidator.walkSourceTree_. */
-      var fs = require('fs');
+      /** The workspace's journals with any of these exact basenames:
+          { basename: [absolute paths] }, every name present. The walk is
+          FoamIndex.findWorkspaceJrlFiles_, the one the usage indexes use, so
+          lint and the index agree on which journals exist. */
       var path = require('path');
       var out = {};
       for ( var b = 0 ; b < basenames.length ; b++ ) out[basenames[b]] = [];
-      var stack = [ this.root ];
-      while ( stack.length ) {
-        var dir = stack.pop();
-        var entries;
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-        catch (e) { require('../logError').logLspError('lint: read dir ' + dir, e); continue; }
-        for ( var i = 0 ; i < entries.length ; i++ ) {
-          var ent = entries[i];
-          if ( ent.name.charAt(0) === '.' )             continue;
-          if ( ent.name === 'node_modules' )            continue;
-          if ( ent.name === 'build' || ent.name === 'out' ) continue;
-          var full = path.join(dir, ent.name);
-          if ( ent.isDirectory() ) stack.push(full);
-          else if ( ent.isFile() && out.hasOwnProperty(ent.name) ) out[ent.name].push(full);
-        }
+      var walker = this.index || this.FoamIndex.create();
+      var all = walker.findWorkspaceJrlFiles_(this.root);
+      for ( var i = 0 ; i < all.length ; i++ ) {
+        var base = path.basename(all[i]);
+        if ( out.hasOwnProperty(base) ) out[base].push(all[i]);
       }
       return out;
+    },
+
+    function yield_() {
+      /** Lets the server answer queued requests (hover, completion) before
+          the next chunk of lint work runs. */
+      return new Promise(function(resolve) { setImmediate(resolve); });
     },
 
     function loadEntries_(filePath) {
@@ -88,6 +99,12 @@ foam.CLASS({
       try { text = require('fs').readFileSync(filePath, 'utf8'); }
       catch (e) { require('../logError').logLspError('lint: read ' + filePath, e); return []; }
       return this.loader.loadStringWithLines(text);
+    },
+
+    function rowClass_(filePath, obj) {
+      /** The class a journal row is read as: its own "class", or the `of` of
+          the DAO its journal feeds when the row leaves "class" out. */
+      return obj['class'] || this.JOURNAL_OF[require('path').basename(filePath)];
     },
 
     function underSrc_(filePath) {
@@ -118,9 +135,9 @@ foam.CLASS({
       var defs = {};
       var groupFiles = files['ruleGroups.jrl'];
       for ( var i = 0 ; i < groupFiles.length ; i++ ) {
-        var groups = this.loader.filterByClass(
-          this.loader.loadFile(groupFiles[i]), 'foam.core.ruler.RuleGroup');
+        var groups = this.loader.loadFile(groupFiles[i]);
         for ( var j = 0 ; j < groups.length ; j++ ) {
+          if ( this.rowClass_(groupFiles[i], groups[j]) !== 'foam.core.ruler.RuleGroup' ) continue;
           if ( groups[j].id == null ) continue;
           ( defs[groups[j].id] || (defs[groups[j].id] = []) ).push(groupFiles[i]);
         }
@@ -179,7 +196,7 @@ foam.CLASS({
         var refs = this.loadEntries_(refFiles[i]);
         for ( var j = 0 ; j < refs.length ; j++ ) {
           var ref = refs[j].obj;
-          if ( ref['class'] !== 'foam.strategy.StrategyReference' ) continue;
+          if ( this.rowClass_(refFiles[i], ref) !== 'foam.strategy.StrategyReference' ) continue;
           if ( ! ref.strategy ) continue;
           registered[ref.strategy] = true;
           if ( this.index && ! this.index.classExists(ref.strategy) ) {
@@ -205,9 +222,7 @@ foam.CLASS({
       if ( ! this.index ) return findings;
       var srcRoot = path.join(this.root, 'src') + path.sep;
       for ( var t = 0 ; t < targets.length ; t++ ) {
-        var impls = this.index.isInterface(targets[t]) ?
-          this.index.getImplementors(targets[t]) :
-          this.index.getSubclasses(targets[t]);
+        var impls = this.descendants_(targets[t]);
         for ( var k = 0 ; k < impls.length ; k++ ) {
           if ( registered[impls[k]] ) continue;
           var file = this.index.getFilePath(impls[k]);
@@ -227,9 +242,30 @@ foam.CLASS({
       return findings;
     },
 
-    function checkPomMembership_() {
+    function descendants_(targetId) {
+      /** Every class that is, or extends, an implementor of the interface
+          (or a subclass of the class) `targetId`. foam.core.om.CCOMRuleAction
+          extends OMRuleAction, a direct RuleAction implementor: the direct
+          lists alone never reached it. `seen` also stops an extends cycle. */
+      var seen  = {};
+      var out   = [];
+      var queue = this.index.isInterface(targetId) ?
+        this.index.getImplementors(targetId).slice() :
+        this.index.getSubclasses(targetId).slice();
+      while ( queue.length ) {
+        var id = queue.shift();
+        if ( seen[id] ) continue;
+        seen[id] = true;
+        out.push(id);
+        var subs = this.index.getSubclasses(id);
+        for ( var i = 0 ; i < subs.length ; i++ ) queue.push(subs[i]);
+      }
+      return out;
+    },
+
+    async function checkPomMembership_() {
       if ( ! this.pomValidator ) return [];
-      var r = this.pomValidator.validate();
+      var r = await this.pomValidator.validateAsync();
       var findings = [];
       for ( var i = 0 ; i < r.orphans.length ; i++ ) {
         findings.push(this.finding_('pom-membership', 'error', r.orphans[i], 1,
@@ -270,7 +306,7 @@ foam.CLASS({
       });
     },
 
-    function lint(params) {
+    async function lint(params) {
       params = params || {};
       var checks = ( params.checks && params.checks.length ) ? params.checks : this.ALL_CHECKS;
       var allChecks = this.ALL_CHECKS;
@@ -279,16 +315,26 @@ foam.CLASS({
         throw new Error('unknown check(s): ' + unknown.join(', ') + ' — valid: ' + this.ALL_CHECKS.join(', '));
       }
 
-      // One workspace walk for every journal the selected checks read.
+      // One workspace walk for every journal the selected checks read. Each
+      // check below runs as its own chunk, with a yield between them so the
+      // JSON-RPC loop keeps serving requests while a lint is in progress.
       var names = [];
       if ( checks.indexOf('rule-group') !== -1 )   names = names.concat(this.CHECK_INPUTS['rule-group']);
       if ( checks.indexOf('strategy-ref') !== -1 ) names = names.concat(this.CHECK_INPUTS['strategy-ref']);
       var files = names.length ? this.findJrlFiles_(names) : {};
 
       var findings = [];
-      if ( checks.indexOf('pom-membership') !== -1 ) findings = findings.concat(this.checkPomMembership_());
-      if ( checks.indexOf('rule-group') !== -1 )     findings = findings.concat(this.checkRuleGroups_(files));
-      if ( checks.indexOf('strategy-ref') !== -1 )   findings = findings.concat(this.checkStrategyRefs_(params.strategyTargets, files));
+      if ( checks.indexOf('pom-membership') !== -1 ) {
+        findings = findings.concat(await this.checkPomMembership_());
+      }
+      if ( checks.indexOf('rule-group') !== -1 ) {
+        await this.yield_();
+        findings = findings.concat(this.checkRuleGroups_(files));
+      }
+      if ( checks.indexOf('strategy-ref') !== -1 ) {
+        await this.yield_();
+        findings = findings.concat(this.checkStrategyRefs_(params.strategyTargets, files));
+      }
 
       if ( params.scope === 'paths' && Array.isArray(params.paths) ) {
         findings = this.scopeToPaths_(findings, params.paths);

@@ -740,3 +740,17 @@ section('FoamIndex — a changed entry stays changed');
     index.buildFileIndex();
   }
 })();
+
+// === getImplementors cache is dropped by invalidate (#14) ===
+
+(function() {
+  var idx = foam.parse.lsp.FoamIndex.create();
+  idx.cache_['impl_lsp.stale.Iface'] = ['lsp.stale.Old'];
+  idx.cache_['req_lsp.stale.Iface']  = ['lsp.stale.Old'];
+  idx.cache_['of_lsp.stale.Iface']   = ['lsp.stale.Old'];
+  idx.invalidate('lsp.stale.Other');
+  test(idx.getImplementors('lsp.stale.Iface').length === 0,
+    'invalidate drops a cached getImplementors result');
+  test(! idx.cache_['req_lsp.stale.Iface'] && ! idx.cache_['of_lsp.stale.Iface'],
+    'invalidate drops cached getRequirers and getOfUsers results');
+})();
