@@ -87,6 +87,8 @@ that drops all of them together.
 | `FoamAnalysisRunner.ts` | Sends workspace analysis request, handles progress |
 | `FoamLintRunner.ts` | Sends `foam/lint`, paints the `foam-lint` diagnostic collection, re-lints after `.js`/`.jrl` saves |
 | `lintModel.ts` | Pure lint model (scope filter, grouping, finding → diagnostic, counts) — imports nothing from `vscode`, so the `vscodeLint` test category runs it in plain node |
+| `syntaxes/foam-js.tmLanguage.json` | TextMate injection into `source.js`: Java and CSS regions for `javaCode:`-style and `css:` template strings, class-id keys, `foam.<X>(` calls. The `css:` region is named `meta.foam.css-block.js` and its content is read by `source.css` |
+| `syntaxes/foam-css.tmLanguage.json` | FOAM-only CSS syntax, injected into the `meta.foam.css-block.js` region; one rule today, `self-class-selector`: `<<` / `^` with its suffix (`<<popup-title`) opens a `meta.selector.css` that `source.css#selector-innards` reads on. `source.css` knows neither shorthand, so before this `<<x:hover` was plain text. Being an injection, it also reaches a shorthand inside a selector `source.css` opened (`.x <<y`, `:not(<<y)`); comments, strings, values and attribute selectors (`[class^=x]`) are excluded. No tokenizer in the test suite (vscode-textmate is not a dependency); `editorFeatures` checks the files' wiring and runs the rule's patterns. Zed reads `css:` through the external `foam_css` tree-sitter grammar (`editors/zed-foam3/extension.toml`), whose `foam_class_selector` token is a separate copy of this pattern |
 
 ## FOAM Concepts for AI Agents
 
