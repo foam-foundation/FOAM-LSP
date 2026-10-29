@@ -26,7 +26,7 @@
 
 'use strict';
 
-const { spawn }   = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const fs          = require('fs');
 const path        = require('path');
 const readline    = require('readline');
@@ -633,6 +633,24 @@ class FoamLSPClient {
     this._notify('textDocument/didSave', { textDocument: { uri: uri } });
   }
 
+  // Bring the server up to date with `uris` and every document already open.
+  // ensureOpen alone is not enough for a file the server has never seen: a
+  // first didOpen caches the text but registers no class, so a freshly
+  // written MyAction.js stayed invisible to the registry and to the pom
+  // index until a didSave. Send that didSave here for a file that was not
+  // open before this call.
+  async syncFiles(uris) {
+    await this.whenReady();
+    const all = new Set(this.openedUris.keys());
+    for ( const uri of uris ) all.add(uri);
+    for ( const uri of all ) {
+      const wasOpen = this.openedUris.has(uri);
+      try { await this.ensureOpen(uri); }
+      catch (e) { continue; }   // deleted from disk: ensureOpen already closed it
+      if ( ! wasOpen ) this._notify('textDocument/didSave', { textDocument: { uri: uri } });
+    }
+  }
+
   async getDiagnostics(uri) {
     await this.whenReady();
     if ( ! uri ) {
@@ -716,6 +734,30 @@ async function hierarchyRaw(lsp, projectRoot, args, kind) {
   const og  = await lsp.request('callHierarchy/outgoingCalls', { item: item });
   return { a: ( inc || [] ).map(function(c) { return c.from; }),
            b: ( og || [] ).map(function(c) { return c.to; }) };
+}
+
+// Files foam/lint can be wrong about because the server booted before they
+// were written: the ones named in `paths`, else every modified or untracked
+// .js / .jrl file git reports under the project root. A project that is not
+// a git checkout syncs only the already-open documents.
+function lintSyncUris(projectRoot, args) {
+  let files;
+  if ( args.scope === 'paths' && Array.isArray(args.paths) ) {
+    files = args.paths.map(function(p) { return path.resolve(projectRoot, uriToPath(p)); });
+  } else {
+    try {
+      // -m modified, -o untracked; paths are relative to the cwd. A deleted
+      // file is listed too and skipped later, when ensureOpen cannot stat it.
+      files = execFileSync('git', [ 'ls-files', '-m', '-o', '--exclude-standard', '-z' ],
+        { cwd: projectRoot, encoding: 'utf8', stdio: [ 'ignore', 'pipe', 'ignore' ] })
+        .split('\0')
+        .filter(Boolean)
+        .map(function(f) { return path.resolve(projectRoot, f); });
+    } catch (e) { files = []; }
+  }
+  return files
+    .filter(function(f) { return /\.(js|jrl)$/.test(f); })
+    .map(function(f) { return normalizeUri(f, projectRoot); });
 }
 
 // --- Tool dispatch --------------------------------------------------------
@@ -874,6 +916,9 @@ async function callTool(lsp, projectRoot, name, args) {
       return relPath(uri, projectRoot) + ': ' + edits.length + ' entries updated. Warnings: ' + warn;
     }
     case 'foam_lint': {
+      // The lint reads the class registry and file index built at boot, so
+      // bring both up to date with what the agent just wrote first.
+      await lsp.syncFiles(lintSyncUris(projectRoot, args));
       const r = await lsp.request('foam/lint', {
         scope:           args.scope,
         paths:           args.paths,
@@ -993,7 +1038,7 @@ module.exports = {
   shapeLocations, shapeHover, shapeDocumentSymbols, shapeWorkspaceSymbols,
   shapeDiagnostics, shapeItems, shapeCodeActions, shapeLintFindings,
   toolSchemas, resolvePos, callTool, FoamLSPClient,
-  applyWorkspaceEdit, posToOffset, LSP_ENTRY
+  applyWorkspaceEdit, posToOffset, lintSyncUris, LSP_ENTRY
 };
 
 if ( require.main === module ) main();
