@@ -229,9 +229,9 @@ foam.CLASS({
       return findings;
     },
 
-    function checkPomMembership_() {
+    async function checkPomMembership_() {
       if ( ! this.pomValidator ) return [];
-      var r = this.pomValidator.validate();
+      var r = await this.pomValidator.validateAsync();
       var findings = [];
       for ( var i = 0 ; i < r.orphans.length ; i++ ) {
         findings.push(this.finding_('pom-membership', 'error', r.orphans[i], 1,
@@ -291,8 +291,7 @@ foam.CLASS({
 
       var findings = [];
       if ( checks.indexOf('pom-membership') !== -1 ) {
-        await this.yield_();
-        findings = findings.concat(this.checkPomMembership_());
+        findings = findings.concat(await this.checkPomMembership_());
       }
       if ( checks.indexOf('rule-group') !== -1 ) {
         await this.yield_();

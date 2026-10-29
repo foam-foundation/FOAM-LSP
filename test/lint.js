@@ -176,7 +176,7 @@ test(sr.filter(function(f) { return f.message.indexOf('CompositeRuleAction') !==
 section('LintHandler — pom-membership mapping + lint() orchestrator');
 
 var stubValidator = {
-  validate: function() {
+  validateAsync: async function() {
     return {
       orphans:    [ path.join(FIX, 'src/com/example/Orphan.js') ],
       missing:    [ path.join(FIX, 'src/com/example/Gone.js') ],
@@ -189,14 +189,16 @@ var full = foam.parse.lsp.handlers.LintHandler.create({
   root: FIX, index: stubIndex, pomValidator: stubValidator
 });
 
-var pm = full.checkPomMembership_();
-test(pm.length === 2, 'orphans + missing buckets → two findings (got ' + pm.length + ')');
-test(pm.filter(function(f) { return f.severity === 'error'; }).length === 2,
-  'orphan + missing are errors');
-test(pm.some(function(f) { return /not listed in any pom\.js/.test(f.message); }),
-  'orphan message says not listed in any pom.js');
+var pm;
 
 module.exports.done = (async function() {
+  pm = await full.checkPomMembership_();
+  test(pm.length === 2, 'orphans + missing buckets → two findings (got ' + pm.length + ')');
+  test(pm.filter(function(f) { return f.severity === 'error'; }).length === 2,
+    'orphan + missing are errors');
+  test(pm.some(function(f) { return /not listed in any pom\.js/.test(f.message); }),
+    'orphan message says not listed in any pom.js');
+
   var all = await full.lint({});
   test(all && Array.isArray(all.findings), 'lint({}) returns { findings: [] }');
   test(full.ALL_CHECKS.every(function(c) { return all.findings.some(function(f) { return f.check === c; }); }),
