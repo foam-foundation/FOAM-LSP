@@ -37,6 +37,15 @@ foam.CLASS({
     CHECK_INPUTS: {
       'rule-group':     [ 'rules.jrl', 'ruleGroups.jrl' ],
       'strategy-ref':   [ 'strategyReferences.jrl' ]
+    },
+    // A journal row may leave "class" out: the DAO the journal feeds then
+    // reads it as that DAO's `of`. foam3's src/foam/core/grant/strategyReferences.jrl
+    // has 9 such rows, and several ruleGroups.jrl files have no "class" at
+    // all. The DAOs: strategyDAO (src/foam/strategy/services.jrl) and
+    // ruleGroupDAO (src/foam/core/ruler/services.jrl).
+    JOURNAL_OF: {
+      'ruleGroups.jrl':         'foam.core.ruler.RuleGroup',
+      'strategyReferences.jrl': 'foam.strategy.StrategyReference'
     }
   },
 
@@ -90,6 +99,12 @@ foam.CLASS({
       return this.loader.loadStringWithLines(text);
     },
 
+    function rowClass_(filePath, obj) {
+      /** The class a journal row is read as: its own "class", or the `of` of
+          the DAO its journal feeds when the row leaves "class" out. */
+      return obj['class'] || this.JOURNAL_OF[require('path').basename(filePath)];
+    },
+
     function underSrc_(filePath) {
       /** True when a src/ directory sits between root and filePath. Tested on
           the root-relative path: a checkout under ~/src/ would otherwise put
@@ -118,9 +133,9 @@ foam.CLASS({
       var defs = {};
       var groupFiles = files['ruleGroups.jrl'];
       for ( var i = 0 ; i < groupFiles.length ; i++ ) {
-        var groups = this.loader.filterByClass(
-          this.loader.loadFile(groupFiles[i]), 'foam.core.ruler.RuleGroup');
+        var groups = this.loader.loadFile(groupFiles[i]);
         for ( var j = 0 ; j < groups.length ; j++ ) {
+          if ( this.rowClass_(groupFiles[i], groups[j]) !== 'foam.core.ruler.RuleGroup' ) continue;
           if ( groups[j].id == null ) continue;
           ( defs[groups[j].id] || (defs[groups[j].id] = []) ).push(groupFiles[i]);
         }
@@ -179,7 +194,7 @@ foam.CLASS({
         var refs = this.loadEntries_(refFiles[i]);
         for ( var j = 0 ; j < refs.length ; j++ ) {
           var ref = refs[j].obj;
-          if ( ref['class'] !== 'foam.strategy.StrategyReference' ) continue;
+          if ( this.rowClass_(refFiles[i], ref) !== 'foam.strategy.StrategyReference' ) continue;
           if ( ! ref.strategy ) continue;
           registered[ref.strategy] = true;
           if ( this.index && ! this.index.classExists(ref.strategy) ) {

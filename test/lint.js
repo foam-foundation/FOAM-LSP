@@ -97,32 +97,47 @@ test(srcParentRg.length === 1 && srcParentRg[0].severity === 'warn' && srcParent
 test(! srcParentRg.some(function(f) { return f.path.indexOf('four') !== -1; }),
   'root under a src/ dir: a group under <root>/src/ is still reachable');
 
+// A ruleGroups.jrl row with no "class" is still a RuleGroup: ruleGroupDAO
+// reads it as its `of`. Several foam3 ruleGroups.jrl files are written so.
+var NOCLASS = fs.mkdtempSync(path.join(os.tmpdir(), 'foam-lint-noclass-'));
+write('deployment/one/ruleGroups.jrl', 'p({"id":"bare-group"})\n', NOCLASS);
+write('deployment/one/rules.jrl',
+  'p({"class":"foam.core.ruler.Rule","id":"bare-rule","ruleGroup":"bare-group"})\n', NOCLASS);
+var noClassRg = foam.parse.lsp.handlers.LintHandler.create({ root: NOCLASS }).checkRuleGroups_();
+test(noClassRg.length === 0,
+  'a ruleGroups.jrl row with no "class" defines its group (got ' + noClassRg.length + ' findings)');
+
 section('LintHandler — strategy-ref');
 
 // Fixture jrl + implementor source files
 write('src/com/example/strategyReferences.jrl',
   'p({"class":"foam.strategy.StrategyReference","id":"ex.Registered","desiredModelId":"foam.core.ruler.RuleAction","strategy":"com.example.RegisteredAction"})\n' +
   'p({"class":"foam.strategy.StrategyReference","id":"ex.Ghost","desiredModelId":"foam.core.ruler.RuleAction","strategy":"com.example.MissingAction"})\n' +
-  'p({"class":"foam.strategy.StrategyReference","id":"ex.TestOnly","desiredModelId":"foam.core.ruler.RuleAction","strategy":"com.example.TestOnlyAction"})\n');
+  'p({"class":"foam.strategy.StrategyReference","id":"ex.TestOnly","desiredModelId":"foam.core.ruler.RuleAction","strategy":"com.example.TestOnlyAction"})\n' +
+  // No "class": strategyDAO reads the row as a StrategyReference.
+  'p({"id":"ex.Bare","desiredModelId":"foam.core.ruler.RuleAction","strategy":"com.example.BareAction"})\n' +
+  'p({"id":"ex.BareGhost","desiredModelId":"foam.core.ruler.RuleAction","strategy":"com.example.DanglingBareAction"})\n');
 write('src/com/example/RegisteredAction.js',   "foam.CLASS({ package: 'com.example', name: 'RegisteredAction' });\n");
+write('src/com/example/BareAction.js',         "foam.CLASS({ package: 'com.example', name: 'BareAction' });\n");
 write('src/com/example/UnregisteredAction.js', "foam.CLASS({ package: 'com.example', name: 'UnregisteredAction' });\n");
 write('src/com/example/SuppressedAction.js',
   "// foam-lint-ignore: strategy-ref\nfoam.CLASS({ package: 'com.example', name: 'SuppressedAction' });\n");
 
 var stubIndex = {
   classExists:     function(id) {
-    return id !== 'com.example.MissingAction' && id !== 'com.example.TestOnlyAction';
+    return id !== 'com.example.MissingAction' && id !== 'com.example.TestOnlyAction' &&
+           id !== 'com.example.DanglingBareAction';
   },
   isInterface:     function(id) { return true; },
   getImplementors: function(id) {
-    return [ 'com.example.RegisteredAction', 'com.example.UnregisteredAction',
+    return [ 'com.example.RegisteredAction', 'com.example.UnregisteredAction', 'com.example.BareAction',
              'com.example.SuppressedAction', 'foam.core.ruler.CompositeRuleAction' ];
   },
   getSubclasses:   function(id) { return []; },
   getFilePath:     function(id) {
     // MissingAction has no file at all (true dangling ref); TestOnlyAction
     // resolves to a path but isn't loaded under current flags (flag-gated).
-    if ( id === 'com.example.MissingAction' ) return null;
+    if ( id === 'com.example.MissingAction' || id === 'com.example.DanglingBareAction' ) return null;
     if ( id.indexOf('com.example.') !== 0 ) return FIX + '/foam3/src/foam/core/ruler/CompositeRuleAction.js';
     return path.join(FIX, 'src/com/example', id.split('.').pop() + '.js');
   },
@@ -153,6 +168,10 @@ test(unreg[0] && unreg[0].line === 1, 'implementor warn line is 1-based');
 
 test(sr.filter(function(f) { return f.message.indexOf('RegisteredAction') !== -1; }).length === 0,
   'registered implementor produces no finding');
+test(sr.filter(function(f) { return f.message.indexOf("'com.example.BareAction'") !== -1; }).length === 0,
+  'a StrategyReference row with no "class" registers its strategy');
+test(sr.filter(function(f) { return f.message.indexOf('DanglingBareAction') !== -1 && f.severity === 'error'; }).length === 1,
+  'a StrategyReference row with no "class" pointing at a missing class is an error');
 test(sr.filter(function(f) { return f.message.indexOf('SuppressedAction') !== -1; }).length === 0,
   'foam-lint-ignore marker suppresses the warn');
 test(sr.filter(function(f) { return f.message.indexOf('CompositeRuleAction') !== -1; }).length === 0,
