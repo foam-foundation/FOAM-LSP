@@ -53,6 +53,14 @@ try {
   process.exit(2);
 }
 
+// LSPMaker started the stdio server (src/server.js:99-108). Its stdin reader
+// both keeps the process alive when stdin stays open and calls process.exit(0)
+// when stdin closes, which cuts a pending write and turns an error exit into 0.
+// A CLI run has no client to serve, so detach it before any output.
+process.stdin.removeAllListeners('data');
+process.stdin.removeAllListeners('end');
+process.stdin.pause();
+
 var index = foam.parse.lsp.FoamIndex.create();
 index.buildFileIndex();
 var validator = foam.parse.lsp.handlers.PomValidator.create({ index: index });
@@ -64,8 +72,21 @@ if ( arg('--strategy-targets') ) params.strategyTargets = arg('--strategy-target
 if ( arg('--diff') != null ) {
   var ref = arg('--diff');
   if ( ! ref || ref.charAt(0) === '-' ) ref = 'HEAD';
-  var out = cp.execSync('git diff --name-only ' + ref, { encoding: 'utf8' });
-  var untracked = cp.execSync('git ls-files --others --exclude-standard', { encoding: 'utf8' });
+  // --relative makes the paths cwd-relative (and drops files outside cwd), the
+  // same base as `git ls-files --others` and as LintHandler.root. Without it
+  // they are relative to the git top level and match nothing when the project
+  // is a repo subdirectory. execFileSync takes no shell, so a ref is never
+  // interpreted; `--` stops a ref from being read as a path.
+  var out, untracked;
+  try {
+    out = cp.execFileSync('git', [ 'diff', '--name-only', '--relative', ref, '--' ],
+        { encoding: 'utf8', stdio: [ 'ignore', 'pipe', 'pipe' ] });
+    untracked = cp.execFileSync('git', [ 'ls-files', '--others', '--exclude-standard' ],
+        { encoding: 'utf8', stdio: [ 'ignore', 'pipe', 'pipe' ] });
+  } catch (e) {
+    console.error('lint-cli: git failed for --diff ' + ref + ': ' + ( e.stderr ? e.stderr.toString().trim() : e.message ));
+    process.exit(2);
+  }
   var changed = out.split('\n').concat(untracked.split('\n')).filter(Boolean);
   params.scope = 'paths';
   params.paths = changed.filter(function(p, i) { return changed.indexOf(p) === i; });
@@ -83,18 +104,22 @@ var findings = result.findings;
 var errors   = findings.filter(function(f) { return f.severity === 'error'; }).length;
 var warns    = findings.length - errors;
 
+var output = '';
 if ( arg('--format') === 'json' ) {
-  process.stdout.write(JSON.stringify({ findings: findings, errors: errors, warns: warns }, null, 2) + '\n');
+  output = JSON.stringify({ findings: findings, errors: errors, warns: warns }, null, 2) + '\n';
 } else {
   for ( var i = 0 ; i < findings.length ; i++ ) {
     var f = findings[i];
-    process.stdout.write(
+    output += (
       f.severity.toUpperCase().padEnd(6) + ' ' + f.check.padEnd(16) + ' ' +
       path.relative(process.cwd(), f.path) + ':' + f.line + '\n' +
       '       ' + f.message + '\n' +
       ( f.fix ? '       fix: ' + f.fix + '\n' : '' ));
   }
-  process.stdout.write('---\n' + errors + ' error(s), ' + warns + ' warn(s)\n');
+  output += '---\n' + errors + ' error(s), ' + warns + ' warn(s)\n';
 }
 
-process.exit(errors > 0 || ( has('--strict') && warns > 0 ) ? 1 : 0);
+// exitCode, not exit(): process.exit() straight after a large write to a pipe
+// drops what the pipe has not yet taken (macOS pipes take 64 KiB at a time).
+process.exitCode = errors > 0 || ( has('--strict') && warns > 0 ) ? 1 : 0;
+process.stdout.write(output);
