@@ -256,7 +256,7 @@ foam.CLASS({
     },
 
     function collectCssBlocks(text) {
-      /** Spans of every top-level `css:` value's CONTENT (backticks excluded),
+      /** Spans of every top-level `css:` value's CONTENT (quote marks excluded),
        *  from the grammar's P.msg(cssBlock) records, sorted by start. Deduped
        *  by startPos for the same backtracking reason as collectRanges. */
       var byName = this.collectAxiomPositions(text).cssBlock;
@@ -271,6 +271,21 @@ foam.CLASS({
         }
       }
       return out.sort(function(a, b) { return a.startPos - b.startPos; });
+    },
+
+    function cssBlockFor(text, model) {
+      /** The span { startPos, endPos } of `model`'s own css: value content,
+       *  or null. Taken from the grammar's cssBlock records inside the
+       *  model's extent (modelEntryFor), so two classes with identical css
+       *  text each get their own block, and a model whose extent is
+       *  ambiguous gets none rather than the first block in the file. */
+      var entry = this.modelEntryFor(text, model);
+      if ( ! entry ) return null;
+      var blocks = this.collectCssBlocks(text);
+      for ( var i = 0 ; i < blocks.length ; i++ ) {
+        if ( blocks[i].startPos >= entry.startPos && blocks[i].endPos <= entry.endPos ) return blocks[i];
+      }
+      return null;
     },
 
     function collectU2Calls(text) {
@@ -1346,9 +1361,11 @@ foam.CLASS({
         // block (DocumentColorHandler's swatches) gets its exact span from
         // this parse. The alternative, text.indexOf(model.css), finds the
         // first copy of the text, which is the wrong block when two models in
-        // one file share a css body. The span includes both backticks.
+        // one file share a css body. The span includes both quote marks; any of
+        // the three string forms counts, since css: '^ { ... }' is as valid as
+        // a template literal.
         cssEntry: P.seq(key('css', topHint('css')), wsc, P.literal(':'), wsc,
-          P.msg(backtickString, { kind: 'cssBlock' })),
+          P.msg(stringLiteral, { kind: 'cssBlock' })),
 
         // implements: ['foam.x.Y'] — same classRef parsing as extends.
         // FOAM allows implements to reference any class id, not just

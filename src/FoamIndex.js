@@ -799,6 +799,15 @@ foam.CLASS({
       /** Clear cache for a class and dependents. */
       delete this.cache_[classId];
       delete this.cache_.propertyTypes;
+      delete this.cache_.interfaceIds;
+
+      // getImplementors, getRequirers and getOfUsers cache one registry scan
+      // per target id under impl_/req_/of_. A save can add or drop a class
+      // that implements, requires or types any target, so every such entry
+      // is stale, not only the saved class's own.
+      for ( var key of Object.keys(this.cache_) ) {
+        if ( key.startsWith('impl_') || key.startsWith('req_') || key.startsWith('of_') ) delete this.cache_[key];
+      }
       this.invalidateSymbolIndex_();
     },
 
@@ -2459,9 +2468,10 @@ foam.CLASS({
       this.jrlUsageIndex_ = { byTarget: byTarget };
     },
 
-    function findWorkspaceJrlFiles_() {
+    function findWorkspaceJrlFiles_(opt_root) {
       /**
-       * Every *.jrl under the workspace root; node_modules, build and
+       * Every *.jrl under the workspace root (opt_root, default the project
+       * root); node_modules, build and
        * dot-directories skipped.
        *
        * Deliberately NOT getJournalDirs(). That one answers "which
@@ -2519,7 +2529,7 @@ foam.CLASS({
           }
         }
       }
-      var root = globalThis.__foamLSPRoots__.project;
+      var root = opt_root || globalThis.__foamLSPRoots__.project;
       try { seenReal[fs_.realpathSync(root)] = true; } catch (e) {}
       walk(root);
       return out;

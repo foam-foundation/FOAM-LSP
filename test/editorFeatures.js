@@ -188,6 +188,20 @@ var twinCssLns = tokenLines(semanticHandler.handle(twinCssText, 'file:///tmp/lsp
 test(twinCssLns.indexOf(11) !== -1,
   'Semantic tokens: the second of two identical css: blocks is highlighted too (line 11)');
 
+// foam3 #5670 moved css: blocks from `^` to `<<`; both are the class's own
+// selector, so both get the type token (0) over the shorthand and its suffix.
+var selfCss = semanticHandler.handle(
+  "foam.CLASS({\n  package: 'test',\n  name: 'SelfCss',\n" +
+  "  css: `\n    <<popup-title { color: red; }\n    ^old { color: red; }\n  `\n})",
+  'file:///tmp/lsptest-self-css-st.js').data;
+var selfTypes = [], selfLine = 0;
+for ( var si = 0 ; si < selfCss.length ; si += 5 ) {
+  selfLine += selfCss[si];
+  if ( selfCss[si + 3] === 0 ) selfTypes.push(selfLine + ':' + selfCss[si + 2]);
+}
+test(selfTypes.indexOf('4:13') !== -1 && selfTypes.indexOf('5:4') !== -1,
+  'Semantic tokens: <<popup-title and ^old are each one type token (got ' + selfTypes.join(', ') + ')');
+
 
 // === Semantic tokens — u2 builder calls by intent (#8) ===
 //
@@ -795,3 +809,81 @@ try {
 test(capLogs === 2, 'DocumentLink: the size-cap skip is logged once per URI (got ' + capLogs + ')');
 test(linkHandler.handle('var x = "foam.dao.MDAO";', 'file:///tmp/plain.js').length === 0,
   'DocumentLink: a non-FOAM, non-journal file answers []');
+
+
+// === VS Code TextMate: FOAM css selectors ===
+//
+// foam3 moved every css: block from `^` to `<<` (foam3 #5670). source.css has
+// no rule for either, so `<<popup-title:hover` stayed plain text and the
+// selector it starts was never opened. foam-css.tmLanguage.json injects one
+// rule for both. Tokenizing a sample needs vscode-textmate and
+// vscode-oniguruma, which this repo does not install, so these checks read the
+// grammar files and run the rule's own patterns: they use no Oniguruma-only
+// syntax, so JavaScript's RegExp reads them the same way.
+
+section('VS Code TextMate: FOAM css selectors (<< and ^)');
+(function() {
+  var fs = require('fs'), path = require('path');
+  var EXT = path.join(__dirname, '..', 'editors', 'vscode');
+  function readJson(rel) {
+    try { return JSON.parse(fs.readFileSync(path.join(EXT, rel), 'utf8')); } catch (e) { return null; }
+  }
+  var cssGrammar = readJson('syntaxes/foam-css.tmLanguage.json');
+  var jsGrammar  = readJson('syntaxes/foam-js.tmLanguage.json');
+  var manifest   = readJson('package.json');
+
+  var contributed = ( manifest.contributes.grammars || [] ).filter(function(g) {
+    return g.scopeName === 'foam.css.injection';
+  })[0];
+  test(contributed && contributed.path === './syntaxes/foam-css.tmLanguage.json' &&
+       contributed.injectTo.indexOf('source.js') !== -1,
+    'TextMate: package.json injects foam.css.injection into source.js');
+  test(cssGrammar && cssGrammar.scopeName === 'foam.css.injection',
+    'TextMate: foam-css.tmLanguage.json parses and declares foam.css.injection');
+  if ( ! cssGrammar ) return;
+
+  // The injection is scoped to the region foam-js.tmLanguage.json opens for a
+  // css: block; renaming that region on one side only would switch it off.
+  var cssBlock = jsGrammar.patterns.filter(function(p) {
+    return p.contentName === 'meta.embedded.block.css';
+  })[0];
+  var selector = cssGrammar.injectionSelector;
+  test(cssBlock && selector.indexOf('L:' + cssBlock.name + ' ') === 0,
+    'TextMate: the injection targets the css: block region (' + ( cssBlock && cssBlock.name ) + ')');
+  [ '-comment', '-string', '-meta.property-value.css', '-meta.attribute-selector.css' ].forEach(function(ex) {
+    test(selector.indexOf(ex) !== -1, 'TextMate: the injection skips ' + ex.substring(1) +
+      ( ex === '-meta.attribute-selector.css' ? ' (the ^ of [class^=x])' : '' ));
+  });
+
+  var rule  = cssGrammar.repository['self-class-selector'];
+  var begin = new RegExp(rule.begin, 'y');
+  var end   = new RegExp(rule.end, 'y');
+  function beginAt(s) { begin.lastIndex = 0; var m = begin.exec(s); return m && m[0]; }
+  // Selector heads written in foam3 today, and what the rule must take.
+  [
+    [ '<< { gap: 8px; }',           '<<'            ],
+    [ '<< .x { a: b; }',            '<<'            ],
+    [ '<<:hover { a: b; }',         '<<'            ],
+    [ '<<popup { a: b; }',          '<<popup'       ],
+    [ '<<popup-title:hover, <<x {', '<<popup-title' ],
+    [ '<<a<<b:not(<<c) {',          '<<a'           ],
+    [ '<<x{ a: b; }',               '<<x'           ],
+    [ '^btn { a: b; }',             '^btn'          ],
+    [ '^ .y { a: b; }',             '^'             ]
+  ].forEach(function(c) {
+    test(beginAt(c[0]) === c[1], 'TextMate: `' + c[0] + '` opens a FOAM selector on ' +
+      JSON.stringify(c[1]) + ' (got ' + JSON.stringify(beginAt(c[0])) + ')');
+  });
+  // foam.u2.CSS expandCSS joins any letter, digit, '-' or '_' after the
+  // shorthand to the class with a dash: `<<_x` is `.foam-u2-Foo-_x`.
+  test(beginAt('<<_x2 { a: b; }') === '<<_x2' && beginAt('<<-x { a: b; }') === '<<-x',
+    'TextMate: the suffix takes what expandCSS joins (letters, digits, - and _)');
+
+  function endsAt(s, i) { end.lastIndex = i; return end.test(s); }
+  var line = '<<x:hover > .y {';
+  test(endsAt(line, line.indexOf(' {')) && ! endsAt(line, line.indexOf(' >')),
+    'TextMate: the selector runs past combinators and ends before {');
+  test(endsAt(':not(<<c)', ':not(<<c'.length), 'TextMate: a selector inside :not( ends at its )');
+  test(JSON.stringify(rule.patterns) === JSON.stringify([ { include: 'source.css#selector-innards' } ]),
+    'TextMate: the rest of the selector is read by source.css (pseudo-classes, combinators, .classes)');
+})();

@@ -207,6 +207,11 @@
           "meta.embedded.block.java": "java",
           "meta.embedded.block.css": "css"
         }
+      },
+      {
+        "scopeName": "foam.css.injection",
+        "path": "./syntaxes/foam-css.tmLanguage.json",
+        "injectTo": ["source.js"]
       }
     ],
     "viewsContainers": {

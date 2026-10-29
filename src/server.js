@@ -1075,12 +1075,14 @@ function start() {
       case 'foam/lint':
         // Custom request: registration-completeness findings. Params:
         // { scope?: 'all'|'paths', paths?, checks?, strategyTargets? }.
-        try {
-          respond(id, lintHandler.lint(params));
-        } catch (e) {
+        // Non-blocking: lint yields between its checks, so hover/completion
+        // keep responding while it runs.
+        lintHandler.lint(params).then(function(result) {
+          respond(id, result);
+        }, function(e) {
           console.error('[LSP] foam/lint error:', e.message);
           respondError(id, -32603, e.message);
-        }
+        });
         break;
 
       case 'foam/analyzeWorkspace':

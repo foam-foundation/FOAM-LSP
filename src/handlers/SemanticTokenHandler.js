@@ -356,7 +356,7 @@ foam.CLASS({
        *
        * Highlights:
        * - $tokenName        → variable (2)
-       * - ^ and ^name       → type (0)
+       * - <<, <<name, ^, ^name → type (0)
        * - CSS property names → keyword (3)
        * - CSS values         → string (4)
        * - Numbers with units → number (6)
@@ -368,12 +368,10 @@ foam.CLASS({
       var cssStr = model.css;
       if ( ! cssStr || typeof cssStr !== 'string' ) return;
 
-      // Search from the model's own call. Two classes with the same css: text
-      // made a whole-file search find the first block for both.
       var grammar  = this.index.getGrammar && this.index.getGrammar();
-      var entry    = grammar && grammar.modelEntryFor(text, model);
-      var cssIndex = text.indexOf(cssStr, entry ? entry.startPos : 0);
-      if ( cssIndex === -1 ) return;
+      var block    = grammar && grammar.cssBlockFor(text, model);
+      if ( ! block ) return;
+      var cssIndex = block.startPos;
 
       // Pre-compute line offsets
       var lineOffsets = [0];

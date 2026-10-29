@@ -10,16 +10,43 @@ foam.CLASS({
 
   documentation: 'POM-membership diagnostics — flags orphan FOAM model files (a .js with foam.CLASS that no pom.js lists), POMs referencing files that no longer exist, and duplicate registrations. Result feeds the custom foam/validatePoms request and rolls up into the workspace analyzer.',
 
+  constants: {
+    // Files read between two yields of validateAsync.
+    YIELD_EVERY: 10
+  },
+
   properties: [
     { name: 'index' }
   ],
 
   methods: [
     function validate() {
+      /** Synchronous run of validateSteps_ to completion. */
+      var steps = this.validateSteps_(), r;
+      while ( ! ( r = steps.next() ).done ) {}
+      return r.value;
+    },
+
+    async function validateAsync() {
+      /** Same result as validate(), but yields to the event loop between
+          chunks of the walk so a caller on the JSON-RPC thread (lint) does
+          not stall hover and completion for the whole pass. */
+      var steps = this.validateSteps_(), r;
+      while ( ! ( r = steps.next() ).done ) {
+        await new Promise(function(resolve) { setImmediate(resolve); });
+      }
+      return r.value;
+    },
+
+    function* validateSteps_() {
+      // Generator behind validate()/validateAsync(): each yield is a point
+      // where the async caller lets queued requests run.
       // Returns { orphans: [path], missing: [{pomFile, missingPath}], duplicates: [{classId, paths}] }
       //
-      // Source of truth: FoamIndex.fileIndex_ — built at boot by walking
-      // every pom.js. It already maps classId → file path. We cross-check
+      // fileIndex_ maps classId → file path, but it is NOT pom membership:
+      // reindexPath also adds a class file saved after boot under the nearest
+      // pom.js before any pom lists it. A row counts as listed only when the
+      // pom it names has an entry for it (isListedInPom_). We cross-check
       // against the filesystem under src/.
 
       var fs   = require('fs');
@@ -29,13 +56,14 @@ foam.CLASS({
       var indexedPaths = {};
       var duplicates   = [];
       var pathToIds    = {};
+      var pomEntries   = {};
 
       for ( var id in fileIndex ) {
         var entry = fileIndex[id];
         var p     = typeof entry === 'string' ? entry : entry.path;
         if ( ! p ) continue;
-        indexedPaths[p] = true;
         ( pathToIds[p] || (pathToIds[p] = []) ).push(id);
+        if ( this.isListedInPom_(entry, pomEntries) ) indexedPaths[p] = true;
       }
       for ( var p in pathToIds ) {
         if ( pathToIds[p].length > 1 ) {
@@ -75,6 +103,9 @@ foam.CLASS({
         var rootPom = path.join(path.dirname(sourceRoots[i]), 'pom.js');
         if ( fs.existsSync(rootPom) ) pomFiles.push(rootPom);
 
+        // The walk only collects candidates; reading them is the slow part,
+        // so that loop is the one that yields.
+        var candidates = [];
         this.walkSourceTree_(sourceRoots[i], function(filePath) {
           if ( ! filePath.endsWith('.js') )      return;
           if ( filePath.endsWith('/pom.js') )     { pomFiles.push(filePath); return; }
@@ -82,17 +113,22 @@ foam.CLASS({
           // Skip test/, generated/etc. — only flag plain-source orphans.
           if ( /\/test\//.test(filePath) )        return;
           if ( filePath.endsWith('tests.jrl') )   return;
-          try {
-            var text = fs.readFileSync(filePath, 'utf8');
-            if ( FOAM_DECL.test(text) ) orphans.push(filePath);
-          } catch (e) {}
+          candidates.push(filePath);
         });
+        for ( var c = 0 ; c < candidates.length ; c++ ) {
+          if ( c % this.YIELD_EVERY === 0 ) yield;
+          try {
+            var text = fs.readFileSync(candidates[c], 'utf8');
+            if ( FOAM_DECL.test(text) ) orphans.push(candidates[c]);
+          } catch (e) {}
+        }
       }
 
       // Entry-level issues (whitespace, unknown flags, missing files) rolled
       // up across every pom the walk found.
       var entryIssues = [];
       for ( var i = 0 ; i < pomFiles.length ; i++ ) {
+        if ( i % this.YIELD_EVERY === 0 ) yield;
         try {
           var pomText = fs.readFileSync(pomFiles[i], 'utf8');
           var issues  = this.validateEntries(pomText, pomFiles[i]);
@@ -105,6 +141,28 @@ foam.CLASS({
 
       return { orphans: orphans, missing: missing, duplicates: duplicates,
         entryIssues: entryIssues };
+    },
+
+    function isListedInPom_(entry, pomEntries) {
+      /** True when the pom a file-index row names lists the row's file. A row
+       *  with no pom (a bare path) was never written by reindexPath's
+       *  nearest-pom fallback, so it counts as listed. `pomEntries` caches
+       *  each pom's entry names so a pom is parsed once per validate(). */
+      if ( typeof entry === 'string' || ! entry.pomFile || ! entry.pomEntryName ) return true;
+      var names = pomEntries[entry.pomFile];
+      if ( ! names ) {
+        names = pomEntries[entry.pomFile] = {};
+        try {
+          var text  = require('fs').readFileSync(entry.pomFile, 'utf8');
+          var files = this.index.parsePomFiles_(text) || [];
+          for ( var i = 0 ; i < files.length ; i++ ) {
+            if ( files[i] && files[i].name ) names[files[i].name] = true;
+          }
+        } catch (e) {
+          require('../logError').logLspError('PomValidator pom entries ' + entry.pomFile, e);
+        }
+      }
+      return names[entry.pomEntryName] === true;
     },
 
     function validateEntries(text, pomPath) {

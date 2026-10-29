@@ -79,6 +79,7 @@ editors/vscode/
   syntaxes/
     foam-jrl.tmLanguage.json   # FOAM Journal syntax highlighting
     foam-js.tmLanguage.json    # Java injection grammar for javaCode blocks
+    foam-css.tmLanguage.json   # FOAM css: additions (<< and ^ selectors)
   resources/
     foam-icon.svg          # Sidebar icon
   package.json             # Extension manifest
