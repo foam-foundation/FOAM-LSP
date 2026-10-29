@@ -202,3 +202,65 @@ test(lintSchema[0] && lintSchema[0].inputSchema.properties.checks !== undefined,
 var canonicalChecks = require('../src/lintChecks');
 test(lintSchema[0] && JSON.stringify(lintSchema[0].inputSchema.properties.checks.items.enum) === JSON.stringify(canonicalChecks),
   'foam_lint schema checks.items.enum matches the canonical lintChecks list exactly');
+
+section('MCP — foam_lint syncs changed files before linting');
+var lintSyncDone = Promise.resolve();
+{
+  var os3 = require('os'), fs3 = require('fs'), path3 = require('path'), cp3 = require('child_process');
+  var lintRoot = fs3.mkdtempSync(path3.join(os3.tmpdir(), 'foam-lint-sync-'));
+  try {
+    cp3.execFileSync('git', [ 'init', '-q' ], { cwd: lintRoot });
+    fs3.writeFileSync(path3.join(lintRoot, 'tracked.js'), 'x');
+    cp3.execFileSync('git', [ '-c', 'user.name=t', '-c', 'user.email=t@t', 'add', 'tracked.js' ], { cwd: lintRoot });
+    cp3.execFileSync('git', [ '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x' ], { cwd: lintRoot });
+    fs3.writeFileSync(path3.join(lintRoot, 'MyAction.js'), 'x');   // untracked, new
+    fs3.writeFileSync(path3.join(lintRoot, 'tracked.js'), 'y');    // modified
+    fs3.writeFileSync(path3.join(lintRoot, 'notes.txt'), 'x');     // not FOAM
+
+    var order = [];
+    var lintStub = {
+      syncFiles: async function(uris) { order.push({ sync: uris.slice().sort() }); },
+      request:   async function(method) { order.push({ req: method }); return { findings: [] }; }
+    };
+    lintSyncDone = mcp.callTool(lintStub, lintRoot, 'foam_lint', {}).then(function() {
+      test(order.length === 2 && order[0].sync && order[1].req === 'foam/lint',
+        'foam_lint: syncFiles runs before foam/lint');
+      test(order[0].sync.join() === [ 'file://' + path3.join(lintRoot, 'MyAction.js'),
+                                      'file://' + path3.join(lintRoot, 'tracked.js') ].join(),
+        'foam_lint: scope=all syncs the untracked and modified .js files, not notes.txt');
+      order.length = 0;
+      return mcp.callTool(lintStub, lintRoot, 'foam_lint', { scope: 'paths', paths: [ 'MyAction.js' ] });
+    }).then(function() {
+      test(order[0].sync.join() === 'file://' + path3.join(lintRoot, 'MyAction.js'),
+        'foam_lint: scope=paths syncs exactly the given paths');
+    }).catch(function(e) { test(false, 'foam_lint sync test threw: ' + e.message); })
+      .then(function() { fs3.rmSync(lintRoot, { recursive: true, force: true }); });
+  } catch (e) {
+    test(false, 'foam_lint sync test setup threw: ' + e.message);
+  }
+}
+
+// A file the server has never seen needs didOpen AND didSave: the first only
+// caches text, the second registers the class (src/server.js reindexFile).
+{
+  var syncTmp = require('path').join(require('os').tmpdir(), 'FoamLintSyncNew-' + process.pid + '.js');
+  require('fs').writeFileSync(syncTmp, 'x');
+  var sent = [];
+  var client = Object.create(mcp.FoamLSPClient.prototype);
+  client.openedUris = new Map();
+  client.diagnosticsByUri = new Map();
+  client.whenReady = async function() {};
+  client._notify = function(m) { sent.push(m); };
+  var syncDone = client.syncFiles([ 'file://' + syncTmp ]).then(function() {
+    test(sent.join() === 'textDocument/didOpen,textDocument/didSave',
+      'syncFiles: a never-opened file gets didOpen then didSave (got ' + sent.join() + ')');
+    sent.length = 0;
+    return client.syncFiles([ 'file://' + syncTmp ]);
+  }).then(function() {
+    test(sent.length === 0, 'syncFiles: an unchanged open file sends nothing');
+  }).catch(function(e) { test(false, 'syncFiles test threw: ' + e.message); })
+    .then(function() { require('fs').unlinkSync(syncTmp); });
+  lintSyncDone = Promise.all([ lintSyncDone, syncDone ]);
+}
+
+module.exports = { done: lintSyncDone };
