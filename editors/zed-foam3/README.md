@@ -248,3 +248,32 @@ Open a FOAM project in Zed and verify:
 
 - The default is `$FOAM_LSP_HOME/bin/lsp-start.js`, or `~/.foam/lsp/bin/lsp-start.js`
 - If your project structure differs, override via Zed settings (see Configuration)
+
+### "Move to a new file" offered anywhere in a model
+
+The action comes from vtsls, the TypeScript server Zed runs for JavaScript,
+not from the FOAM language server. TypeScript reads the whole
+`foam.CLASS({ ... })` call as one statement, so it offers "Move to a new file"
+(and "Generate 'get' and 'set' accessors") wherever the cursor sits inside a
+model. Applying it deletes the model from its file and writes it, without
+indentation, to a `newFile.js`.
+
+Neither Zed nor vtsls has a setting that hides one refactor, and an extension
+cannot change the defaults of another language server. To stop TypeScript's
+actions in a FOAM workspace, turn vtsls off for JavaScript in the project's
+`.zed/settings.json`:
+
+```json
+{
+  "languages": {
+    "JavaScript": {
+      "language_servers": ["!vtsls", "!typescript-language-server", "..."]
+    }
+  }
+}
+```
+
+Every `.js` file in that workspace then loses TypeScript's completions,
+diagnostics and refactors; the FOAM server's features stay. Mapping `.js` to
+FOAM JavaScript (see Configuration) has the same effect, since Zed attaches
+vtsls only to its built-in JavaScript language.
