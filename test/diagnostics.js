@@ -247,6 +247,23 @@ var twinLines = diagWithTokens.handle(twinCssSrc, 'file:///tmp/lsptest-twin-css.
 test(twinLines.length === 2 && twinLines.indexOf(4) !== -1 && twinLines.indexOf(11) !== -1,
   "Deprecated '^': two classes with the same css: each get their own hint (got lines " + twinLines.join(',') + ')');
 
+// Two same-named classes with the same css: text and no sourceOffset_: the
+// model's extent is ambiguous. Problem: the lookup fell back to offset 0, so
+// the second class's css was read from the FIRST block and its hint landed in
+// the wrong class. Now it finds no block rather than the wrong one.
+var dupCssSrc =
+  "foam.CLASS({\n  package: 'test',\n  name: 'DupCss',\n" +
+  "  css: `\n    ^a { color: red; }\n  `\n})\n" +
+  "foam.CLASS({\n  package: 'test',\n  name: 'DupCss',\n" +
+  "  css: `\n    ^a { color: red; }\n  `\n})";
+var dupModel = { package: 'test', name: 'DupCss', css: '\n    ^a { color: red; }\n  ' };
+test(diagWithTokens.parseCSS_(dupModel, dupCssSrc) === null,
+  'css block: an ambiguous model does not resolve to the first identical css block');
+dupModel.sourceOffset_ = dupCssSrc.indexOf('foam.CLASS', 1);
+var dupBlock = diagWithTokens.parseCSS_(dupModel, dupCssSrc);
+test(dupBlock && dupBlock.base > dupModel.sourceOffset_,
+  "css block: the sourceOffset_ tie-break picks the second class's block");
+
 // Dynamic myClass(var) → suppress unused-class diagnostics entirely
 var dynamicSrc =
   "foam.CLASS({\n  package: 'test',\n  name: 'DynamicMyClass',\n" +
