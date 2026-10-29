@@ -664,11 +664,9 @@ foam.CLASS({
       if ( ! cssStr || typeof cssStr !== 'string' ) return null;
       var parser = this.cssParser_;
       if ( ! parser ) return null;
-      // Search from the model's own call. Two classes with the same css: text
-      // made a whole-file search find the first block for both.
-      var entry = this.grammar.modelEntryFor(text, model);
-      var base  = text.indexOf(cssStr, entry ? entry.startPos : 0);
-      if ( base === -1 ) return null;
+      var block = this.grammar.cssBlockFor(text, model);
+      if ( ! block ) return null;
+      var base  = block.startPos;
       return { parser: parser, tree: parser.parse(cssStr), base: base };
     },
 
@@ -1068,6 +1066,24 @@ foam.CLASS({
           innerRange ? innerRange.end : modelText.length));
       }
 
+      // A foam.RELATIONSHIP's `sourceProperty: { ... }` / `targetProperty:
+      // { ... }` is installed as a property of the source / target model, so
+      // its expressions read that model's properties: `function(firstName)`
+      // in a Group -> User targetProperty is User.firstName, not a property
+      // of GroupUserRelationship. A host the registry does not know gets no
+      // scope of names to check against (propNames null), so nothing in it
+      // is flagged.
+      var relSpans = m.type_ === 'RELATIONSHIP' ? this.grammar.collectRelationshipProperties(text) : [];
+      for ( var rs = 0 ; rs < relSpans.length ; rs++ ) {
+        var span = relSpans[rs];
+        if ( span.startPos < modelOffset || span.endPos > modelEnd ) continue;
+        var host = this.index.getRelationshipProperty(m, span.side).hostClassId;
+        var relStart = span.startPos - modelOffset, relEnd = span.endPos - modelOffset;
+        scopes.push(host && this.index.getClass(host) ?
+          this.buildPropScope_(host, {}, relStart, relEnd) :
+          { classId: host, propNames: null, start: relStart, end: relEnd });
+      }
+
       // Find expression: function(...) patterns within this model's text
       var exprRegex = /expression\s*:\s*function\s*\(([^)]*)\)/g;
       var match;
@@ -1078,6 +1094,7 @@ foam.CLASS({
         // Find the narrowest enclosing scope for this expression
         var exprPos = match.index;
         var scope = this.findEnclosingScope_(scopes, exprPos);
+        if ( ! scope.propNames ) continue;
 
         var params = paramsStr.split(/\s*,\s*/);
         var paramsOffset = modelOffset + match.index + match[0].indexOf(paramsStr);

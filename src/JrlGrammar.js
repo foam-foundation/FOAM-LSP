@@ -23,6 +23,8 @@ foam.CLASS({
       jrlKey       - an object key: the identifier of "name": or name:,
                      quotes excluded. JrlHandler places a key diagnostic
                      (a deprecated property) on it.
+    A second symbol, CLASS_VALUE, answers openClassValue(): the class id
+    being typed when a line ends inside an unfinished "class" value.
     Same harvest pattern as FoamClassGrammar.collectAxiomPositions.`,
 
   properties: [
@@ -103,7 +105,36 @@ foam.CLASS({
         P.alt(dqKey, identKey, strings, blockComment, lineComment, entryHead, P.notChars('')),
         null, 0);
 
-      return { START: START };
+      // An unfinished class value at the end of the text: `"class": "foam.co`
+      // or the bare-key form `class: "foam.co`. Earlier tokens are consumed
+      // whole (strings, comments, identifiers) so a `class` inside a string
+      // or inside `subclass` is never taken for the key. The partial runs to
+      // the end of the text and may contain dots, so `foam.` still counts as
+      // a class value.
+      var wsAny      = P.repeat(P.chars(' \t\r\n'), null, 0);
+      var classKey   = P.alt(P.literal('"class"'), P.literal('class'));
+      var classValue = P.seq1(5,
+        classKey, wsAny, P.literal(':'), wsAny, P.chars('"\''),
+        P.str(P.repeat(P.notChars('"\'\\'), null, 0)),
+        P.eof());
+      var CLASS_VALUE = P.seq1(1,
+        P.repeat(P.seq1(1, P.not(classValue),
+          P.alt(strings, blockComment, lineComment, ident, P.notChars(''))),
+          null, 0),
+        classValue);
+
+      return { START: START, CLASS_VALUE: CLASS_VALUE };
+    },
+
+    function openClassValue(linePrefix) {
+      /**
+       * The class id typed so far when the text before the cursor ends inside
+       * a class value: `"class": "foam.co` gives 'foam.co', `"class": "` gives
+       * ''. Null when the cursor is anywhere else, e.g. on a key or inside a
+       * closed string. Completion replaces exactly this partial.
+       */
+      var partial = this.parseString(linePrefix, 'CLASS_VALUE');
+      return typeof partial === 'string' ? partial : null;
     },
 
     function collectJrlPositions(text) {

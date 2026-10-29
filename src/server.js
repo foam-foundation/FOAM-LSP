@@ -716,6 +716,7 @@ function start() {
         codeActionHandler.featureConfig  = featureConfig;
         codeLensHandler.featureConfig    = featureConfig;
         memberHandler.featureConfig      = featureConfig;
+        semanticTokenHandler.featureConfig = featureConfig;
         // What the client can render on a completion item (labelDetails,
         // the Deprecated tag). The completion handlers shape their items for
         // it, so an older client keeps getting exactly the fields it got
@@ -839,8 +840,8 @@ function start() {
         if ( featureConfig.enabled('semanticTokens') ) {
           caps.semanticTokensProvider = {
             legend: {
-              tokenTypes: ['type', 'class', 'variable', 'keyword', 'string', 'comment', 'number', 'operator', 'method'],
-              tokenModifiers: ['declaration', 'readonly']
+              tokenTypes:     semanticTokenHandler.TOKEN_TYPES,
+              tokenModifiers: semanticTokenHandler.TOKEN_MODIFIERS
             },
             full: true
           };
@@ -1077,12 +1078,14 @@ function start() {
       case 'foam/lint':
         // Custom request: registration-completeness findings. Params:
         // { scope?: 'all'|'paths', paths?, checks?, strategyTargets? }.
-        try {
-          respond(id, lintHandler.lint(params));
-        } catch (e) {
+        // Non-blocking: lint yields between its checks, so hover/completion
+        // keep responding while it runs.
+        lintHandler.lint(params).then(function(result) {
+          respond(id, result);
+        }, function(e) {
           console.error('[LSP] foam/lint error:', e.message);
           respondError(id, -32603, e.message);
-        }
+        });
         break;
 
       case 'foam/analyzeWorkspace':

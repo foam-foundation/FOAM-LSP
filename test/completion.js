@@ -1076,6 +1076,48 @@ var ldStr = ldTypeRich.items.filter(function(i) { return i.label === 'String'; }
 test(ldStr && ldStr.labelDetails && ldStr.labelDetails.description === 'foam.lang',
   'CompletionHandler, capability: String type shows package foam.lang');
 
+// === foam.RELATIONSHIP sourceProperty / targetProperty (#10) ===
+// Each object is installed as a property on another model, so its keys are
+// that property's axioms. The class comes from the relationship, never from
+// a `class:` key: a Reference on a 1:* target, a OneToManyRelationshipProperty
+// on a 1:* source, a ManyToManyRelationshipProperty on either side of a *:*.
+section('Completion — relationship sourceProperty / targetProperty (#10)');
+function relSrc(card) {
+  return "foam.RELATIONSHIP({\n" +
+    "  sourceModel: 'foam.core.auth.Group',\n" +
+    "  targetModel: 'foam.core.auth.User',\n" +
+    "  forwardName: 'users',\n" +
+    "  inverseName: 'group',\n" +
+    "  cardinality: '" + card + "',\n" +
+    "  targetProperty: {\n" +
+    "    label: 'Group',\n" +
+    "    \n" +                // line 8: cursor inside targetProperty
+    "    view: { class: 'foam.u2.view.ReferenceView',  }\n" +  // line 9
+    "  },\n" +
+    "  sourceProperty: {\n" +
+    "    \n" +                // line 12: cursor inside sourceProperty
+    "  }\n" +
+    "});\n";
+}
+function relLabels(src, pos) {
+  return ( completionHandler.handle(src, pos, 'file:///rel/Relationships.js').items || [] )
+    .map(function(i) { return i.label; });
+}
+var relTarget1 = relLabels(relSrc('1:*'), { line: 8, character: 4 });
+test(relTarget1.indexOf('label: ') !== -1 && relTarget1.indexOf('tableCellFormatter: ') !== -1,
+  'targetProperty: offers the universal property keys');
+test(relTarget1.indexOf('targetDAOKey: ') !== -1 && relTarget1.indexOf('menuKeys: ') !== -1,
+  'targetProperty (1:*): offers Reference axioms targetDAOKey and menuKeys');
+var relSource1 = relLabels(relSrc('1:*'), { line: 12, character: 4 });
+test(relSource1.indexOf('methodName: ') !== -1 && relSource1.indexOf('targetDAOKey: ') === -1,
+  'sourceProperty (1:*): offers OneToManyRelationshipProperty axioms, not Reference ones');
+var relTargetMM = relLabels(relSrc('*:*'), { line: 8, character: 4 });
+test(relTargetMM.indexOf('methodName: ') !== -1 && relTargetMM.indexOf('targetDAOKey: ') === -1,
+  'targetProperty (*:*): offers ManyToManyRelationshipProperty axioms, not Reference ones');
+var relView = relLabels(relSrc('1:*'), { line: 9, character: 49 });
+test(relView.indexOf('targetDAOKey: ') === -1,
+  'targetProperty: a nested view: { } object is not the property object');
+
 // === Deprecated tag on property completion items (FOAM-LSP #5) ===
 // A property declared `deprecated:` (StepWizardConfig.wizardView carries
 // `deprecated: true`) is offered with CompletionItemTag.Deprecated (1), so

@@ -188,6 +188,109 @@ var twinCssLns = tokenLines(semanticHandler.handle(twinCssText, 'file:///tmp/lsp
 test(twinCssLns.indexOf(11) !== -1,
   'Semantic tokens: the second of two identical css: blocks is highlighted too (line 11)');
 
+// foam3 #5670 moved css: blocks from `^` to `<<`; both are the class's own
+// selector, so both get the type token (0) over the shorthand and its suffix.
+var selfCss = semanticHandler.handle(
+  "foam.CLASS({\n  package: 'test',\n  name: 'SelfCss',\n" +
+  "  css: `\n    <<popup-title { color: red; }\n    ^old { color: red; }\n  `\n})",
+  'file:///tmp/lsptest-self-css-st.js').data;
+var selfTypes = [], selfLine = 0;
+for ( var si = 0 ; si < selfCss.length ; si += 5 ) {
+  selfLine += selfCss[si];
+  if ( selfCss[si + 3] === 0 ) selfTypes.push(selfLine + ':' + selfCss[si + 2]);
+}
+test(selfTypes.indexOf('4:13') !== -1 && selfTypes.indexOf('5:4') !== -1,
+  'Semantic tokens: <<popup-title and ^old are each one type token (got ' + selfTypes.join(', ') + ')');
+
+
+// === Semantic tokens — u2 builder calls by intent (#8) ===
+//
+// In u2 view code start() and end() read like any other call, so where a
+// child element opens and closes is lost among the add()s. Each builder call
+// is a method token whose modifier names its intent; start and end share one.
+
+section('Semantic tokens — u2 builder calls by intent');
+// Registered so the handler's registry lookup finds Element's start/addClass
+// methods: this.addClass then also gets a plain method token, which the u2
+// token must replace rather than overlap.
+foam.CLASS({ package: 'test.u2tokens', name: 'U2Intents', extends: 'foam.u2.View' });
+var u2Text = [
+  "foam.CLASS({",                                                      // 0
+  "  package: 'test.u2tokens', name: 'U2Intents', extends: 'foam.u2.View',", // 1
+  "  methods: [",                                                      // 2
+  "    function render() {",                                           // 3
+  "      var self = this;",                                            // 4
+  "      this.addClass().start('div')",                                // 5
+  "        .enableClass('on', this.on$)",                              // 6
+  "        .style({ color: 'red' }).attrs({ a: 1 })",                  // 7
+  "        .add(this.dynamic(function(x) { this.tag(self.Foo, {}); }))", // 8
+  "        // .start( in a comment",                                   // 9
+  "        .add('.end( in a string')",                                 // 10
+  "        .start ('span').end()",                                     // 11
+  "      .end();",                                                     // 12
+  "      self.startFoo(); this.addClassName(); var f = this.start;",   // 13
+  "    }",
+  "  ]",
+  "});"
+].join('\n');
+
+var u2Calls = h.index.getGrammar().collectU2Calls(u2Text).map(function(c) {
+  return c.line + ':' + c.col + ' ' + c.name + ' ' + c.intent;
+});
+test(JSON.stringify(u2Calls) === JSON.stringify([
+  '5:11 addClass u2Styling', '5:22 start u2Pair', '6:9 enableClass u2Styling',
+  '7:9 style u2Styling', '7:33 attrs u2Styling', '8:9 add u2Content',
+  '8:18 dynamic u2Reactive', '8:45 tag u2Content', '10:9 add u2Content',
+  '11:9 start u2Pair', '11:24 end u2Pair', '12:7 end u2Pair'
+]), 'collectU2Calls: every builder call, on this/self/a chain, with its intent; ' +
+  'none in comments or strings, none for startFoo/addClassName or an uncalled this.start (got ' +
+  JSON.stringify(u2Calls) + ')');
+test(Object.keys(h.index.getGrammar().collectAxiomPositions(u2Text).memberRef).indexOf('this.start') !== -1,
+  'collectU2Calls: this.start is still a memberRef record for references');
+
+var MODS = semanticHandler.TOKEN_MODIFIERS, METHOD = semanticHandler.TOKEN_TYPES.indexOf('method');
+test(Object.keys(foam.parse.lsp.FoamClassGrammar.U2_BUILDER_CALLS).every(function(n) {
+  return MODS.indexOf(foam.parse.lsp.FoamClassGrammar.U2_BUILDER_CALLS[n]) !== -1;
+}), 'Semantic tokens: every U2_BUILDER_CALLS intent is a declared token modifier');
+
+function tokensAt(data) {
+  var out = {}, line = 0, ch = 0;
+  for ( var i = 0 ; i < data.length ; i += 5 ) {
+    line += data[i]; ch = data[i] === 0 ? ch + data[i + 1] : data[i + 1];
+    var key = line + ':' + ch;
+    out[key] = ( out[key] || [] ).concat([ { length: data[i + 2], type: data[i + 3], modifiers: data[i + 4] } ]);
+  }
+  return out;
+}
+function u2Mod(name) { return 1 << MODS.indexOf(name); }
+var u2Tok = tokensAt(semanticHandler.handle(u2Text, 'file:///tmp/lsptest-u2-intents.js').data);
+function oneU2(pos, len, mod) {
+  var t = u2Tok[pos];
+  return t && t.length === 1 && t[0].length === len && t[0].type === METHOD && t[0].modifiers === u2Mod(mod);
+}
+test(oneU2('5:11', 8, 'u2Styling'),
+  'Semantic tokens: this.addClass is one u2 token, not a u2 token over a plain method token');
+test(oneU2('5:22', 5, 'u2Pair') && oneU2('12:7', 3, 'u2Pair'),
+  'Semantic tokens: the start() and end() of one element carry the same u2Pair modifier');
+test(oneU2('8:9', 3, 'u2Content') && oneU2('8:45', 3, 'u2Content'),
+  'Semantic tokens: add() and tag() carry u2Content');
+test(oneU2('5:11', 8, 'u2Styling') && oneU2('6:9', 11, 'u2Styling') &&
+     oneU2('7:9', 5, 'u2Styling') && oneU2('7:33', 5, 'u2Styling'),
+  'Semantic tokens: addClass/enableClass/style/attrs carry u2Styling');
+test(oneU2('8:18', 7, 'u2Reactive'), 'Semantic tokens: dynamic() carries u2Reactive');
+test(! u2Tok['9:12'] && ! u2Tok['10:14'], 'Semantic tokens: no u2 token in a comment or a string');
+
+var u2Off = foam.parse.lsp.handlers.SemanticTokenHandler.create({
+  index: h.index, cache: h.cache, typeTracker: h.typeTracker,
+  featureConfig: require('../src/FeatureConfig').load({ initOptions: { features: { 'semanticTokens.u2': false } } })
+});
+var offTok = tokensAt(u2Off.handle(u2Text, 'file:///tmp/lsptest-u2-intents.js').data);
+test(Object.keys(offTok).every(function(k) {
+  return offTok[k].every(function(t) { return t.modifiers < u2Mod('u2Pair'); });
+}), 'Semantic tokens: semanticTokens.u2 off emits no u2 modifier');
+test(offTok['5:11'] && offTok['5:11'][0].type === METHOD,
+  'Semantic tokens: with u2 off, this.addClass keeps its plain method token');
+
 
 // === DocumentSymbol extents ===
 //
@@ -706,3 +809,81 @@ try {
 test(capLogs === 2, 'DocumentLink: the size-cap skip is logged once per URI (got ' + capLogs + ')');
 test(linkHandler.handle('var x = "foam.dao.MDAO";', 'file:///tmp/plain.js').length === 0,
   'DocumentLink: a non-FOAM, non-journal file answers []');
+
+
+// === VS Code TextMate: FOAM css selectors ===
+//
+// foam3 moved every css: block from `^` to `<<` (foam3 #5670). source.css has
+// no rule for either, so `<<popup-title:hover` stayed plain text and the
+// selector it starts was never opened. foam-css.tmLanguage.json injects one
+// rule for both. Tokenizing a sample needs vscode-textmate and
+// vscode-oniguruma, which this repo does not install, so these checks read the
+// grammar files and run the rule's own patterns: they use no Oniguruma-only
+// syntax, so JavaScript's RegExp reads them the same way.
+
+section('VS Code TextMate: FOAM css selectors (<< and ^)');
+(function() {
+  var fs = require('fs'), path = require('path');
+  var EXT = path.join(__dirname, '..', 'editors', 'vscode');
+  function readJson(rel) {
+    try { return JSON.parse(fs.readFileSync(path.join(EXT, rel), 'utf8')); } catch (e) { return null; }
+  }
+  var cssGrammar = readJson('syntaxes/foam-css.tmLanguage.json');
+  var jsGrammar  = readJson('syntaxes/foam-js.tmLanguage.json');
+  var manifest   = readJson('package.json');
+
+  var contributed = ( manifest.contributes.grammars || [] ).filter(function(g) {
+    return g.scopeName === 'foam.css.injection';
+  })[0];
+  test(contributed && contributed.path === './syntaxes/foam-css.tmLanguage.json' &&
+       contributed.injectTo.indexOf('source.js') !== -1,
+    'TextMate: package.json injects foam.css.injection into source.js');
+  test(cssGrammar && cssGrammar.scopeName === 'foam.css.injection',
+    'TextMate: foam-css.tmLanguage.json parses and declares foam.css.injection');
+  if ( ! cssGrammar ) return;
+
+  // The injection is scoped to the region foam-js.tmLanguage.json opens for a
+  // css: block; renaming that region on one side only would switch it off.
+  var cssBlock = jsGrammar.patterns.filter(function(p) {
+    return p.contentName === 'meta.embedded.block.css';
+  })[0];
+  var selector = cssGrammar.injectionSelector;
+  test(cssBlock && selector.indexOf('L:' + cssBlock.name + ' ') === 0,
+    'TextMate: the injection targets the css: block region (' + ( cssBlock && cssBlock.name ) + ')');
+  [ '-comment', '-string', '-meta.property-value.css', '-meta.attribute-selector.css' ].forEach(function(ex) {
+    test(selector.indexOf(ex) !== -1, 'TextMate: the injection skips ' + ex.substring(1) +
+      ( ex === '-meta.attribute-selector.css' ? ' (the ^ of [class^=x])' : '' ));
+  });
+
+  var rule  = cssGrammar.repository['self-class-selector'];
+  var begin = new RegExp(rule.begin, 'y');
+  var end   = new RegExp(rule.end, 'y');
+  function beginAt(s) { begin.lastIndex = 0; var m = begin.exec(s); return m && m[0]; }
+  // Selector heads written in foam3 today, and what the rule must take.
+  [
+    [ '<< { gap: 8px; }',           '<<'            ],
+    [ '<< .x { a: b; }',            '<<'            ],
+    [ '<<:hover { a: b; }',         '<<'            ],
+    [ '<<popup { a: b; }',          '<<popup'       ],
+    [ '<<popup-title:hover, <<x {', '<<popup-title' ],
+    [ '<<a<<b:not(<<c) {',          '<<a'           ],
+    [ '<<x{ a: b; }',               '<<x'           ],
+    [ '^btn { a: b; }',             '^btn'          ],
+    [ '^ .y { a: b; }',             '^'             ]
+  ].forEach(function(c) {
+    test(beginAt(c[0]) === c[1], 'TextMate: `' + c[0] + '` opens a FOAM selector on ' +
+      JSON.stringify(c[1]) + ' (got ' + JSON.stringify(beginAt(c[0])) + ')');
+  });
+  // foam.u2.CSS expandCSS joins any letter, digit, '-' or '_' after the
+  // shorthand to the class with a dash: `<<_x` is `.foam-u2-Foo-_x`.
+  test(beginAt('<<_x2 { a: b; }') === '<<_x2' && beginAt('<<-x { a: b; }') === '<<-x',
+    'TextMate: the suffix takes what expandCSS joins (letters, digits, - and _)');
+
+  function endsAt(s, i) { end.lastIndex = i; return end.test(s); }
+  var line = '<<x:hover > .y {';
+  test(endsAt(line, line.indexOf(' {')) && ! endsAt(line, line.indexOf(' >')),
+    'TextMate: the selector runs past combinators and ends before {');
+  test(endsAt(':not(<<c)', ':not(<<c'.length), 'TextMate: a selector inside :not( ends at its )');
+  test(JSON.stringify(rule.patterns) === JSON.stringify([ { include: 'source.css#selector-innards' } ]),
+    'TextMate: the rest of the selector is read by source.css (pseudo-classes, combinators, .classes)');
+})();

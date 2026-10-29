@@ -72,3 +72,44 @@ var diags = diagHandler.handle(unknownText, 'file:///t');
 test(Array.isArray(diags), 'DiagnosticsHandler.handle returns an array (ready for pull-diagnostic wrap)');
 test(diags.every(function(d) { return d.range && typeof d.message === 'string'; }),
   'each diagnostic has range + message');
+
+// A class file saved after boot is indexed under its nearest pom.js before any
+// pom lists it; the index row alone must not make it count as listed (#13).
+(function() {
+  var fs = require('fs'), os = require('os'), path = require('path');
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pom-saved-'));
+  var src = path.join(dir, 'src');
+  fs.mkdirSync(path.join(src, 'x'), { recursive: true });
+  var pomPath = path.join(src, 'pom.js');
+  fs.writeFileSync(pomPath, "foam.POM({ name: 'p', files: [ { name: 'x/Listed' } ] });\n");
+  var listed   = path.join(src, 'x/Listed.js');
+  var unlisted = path.join(src, 'x/Saved.js');
+  fs.writeFileSync(listed,   "foam.CLASS({ package: 'x', name: 'Listed' });\n");
+  fs.writeFileSync(unlisted, "foam.CLASS({ package: 'x', name: 'Saved' });\n");
+  var idx = foam.parse.lsp.FoamIndex.create();
+  idx.fileIndex_ = {};
+  idx.indexFileClasses_(listed, ['js'], pomPath, 'x/Listed', fs);
+  idx.reindexPath(unlisted, 'class');
+  try {
+    var r = foam.parse.lsp.handlers.PomValidator.create({ index: idx }).validate();
+    test(r.orphans.indexOf(unlisted) !== -1,
+      'a class file saved after boot that no pom lists is still an orphan');
+    test(r.orphans.indexOf(listed) === -1,
+      'a class file its pom lists is not an orphan');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})();
+
+// validateAsync is validate() with yields in the walk, so a lint on the
+// JSON-RPC thread lets queued requests run: same result, and a callback
+// queued before it finishes fires before it does.
+module.exports.done = (async function() {
+  var interleaved = 0;
+  var pending = validator.validateAsync();
+  setImmediate(function() { interleaved++; });
+  var asyncResult = await pending;
+  test(JSON.stringify(asyncResult) === JSON.stringify(result),
+    'validateAsync returns the same result as validate');
+  test(interleaved === 1, 'validateAsync yields to the event loop before it resolves');
+})();

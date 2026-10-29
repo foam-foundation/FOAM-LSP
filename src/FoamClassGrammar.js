@@ -17,6 +17,22 @@ foam.CLASS({
     'foam.parse.lsp.FoamIndex'
   ],
 
+  constants: {
+    // The foam.u2.Element builder calls collectU2Calls reports, each with the
+    // intent a reader skims for: u2Pair opens and closes a child element
+    // (start/end), u2Content puts something inside it (add/tag), u2Styling
+    // changes the element itself (addClass/enableClass/style/attrs) and
+    // u2Reactive re-renders when a slot changes (dynamic). SemanticTokenHandler
+    // turns each intent into a token modifier of the same name, so editors
+    // can colour start/end as one pair and dynamic apart from add.
+    U2_BUILDER_CALLS: {
+      start: 'u2Pair', end: 'u2Pair',
+      add: 'u2Content', tag: 'u2Content',
+      addClass: 'u2Styling', enableClass: 'u2Styling', style: 'u2Styling', attrs: 'u2Styling',
+      dynamic: 'u2Reactive'
+    }
+  },
+
   properties: [
     {
       class: 'FObjectProperty',
@@ -101,17 +117,17 @@ foam.CLASS({
         pomFileName: bucket(), pomFlagValue: bucket(), pomJavaFileName: bucket(),
         classRef: bucket(), comment:  bucket(), documentation: bucket(), cssBlock: bucket(),
         instCall: bucket(), instCreateReceiver: bucket(), instTagClass: bucket(), instClassRef: bucket(),
-        instKey: bucket(), instValue: bucket(), memberRef: bucket(),
+        instKey: bucket(), instValue: bucket(), memberRef: bucket(), u2Call: bucket(),
         headEntry: bucket(), requiresEntry: bucket(),
         modelCall: [], modelName: [], modelPackage: [], modelRefines: [],
-        propertyDef: [], methodDef: [],
+        propertyDef: [], methodDef: [], relationshipSource: [], relationshipTarget: [],
         callClose: [], bodyClose: [], propClose: [], methodClose: [], close: []
       };
       // Kinds that record an EXTENT rather than a name. A name-keyed record
       // would key a whole `foam.CLASS({...})` by its own text, so these are
       // plain lists of { line, col, startPos, endPos }, one per span start.
       var SPAN = { modelCall: true, modelName: true, modelPackage: true, modelRefines: true,
-        propertyDef: true, methodDef: true,
+        propertyDef: true, methodDef: true, relationshipSource: true, relationshipTarget: true,
         callClose: true, bodyClose: true, propClose: true, methodClose: true, close: true };
       var spanAt = {};
       // Kinds that allow multiple occurrences per name. Single-occurrence
@@ -129,7 +145,7 @@ foam.CLASS({
       // see the same first record they always did.
       var MULTI = { classRef: true, comment: true, documentation: true, cssBlock: true,
         instCall: true, instCreateReceiver: true, instTagClass: true,
-        instClassRef: true, instKey: true, instValue: true, memberRef: true,
+        instClassRef: true, instKey: true, instValue: true, memberRef: true, u2Call: true,
         // pom scalar values repeat across entries ('js' in ten files:
         // rows), so unlike pomFileName these keep every span.
         pomFlagValue: true, pomJavaFileName: true,
@@ -240,7 +256,7 @@ foam.CLASS({
     },
 
     function collectCssBlocks(text) {
-      /** Spans of every top-level `css:` value's CONTENT (backticks excluded),
+      /** Spans of every top-level `css:` value's CONTENT (quote marks excluded),
        *  from the grammar's P.msg(cssBlock) records, sorted by start. Deduped
        *  by startPos for the same backtracking reason as collectRanges. */
       var byName = this.collectAxiomPositions(text).cssBlock;
@@ -252,6 +268,42 @@ foam.CLASS({
           if ( seen[rec.startPos] ) continue;
           seen[rec.startPos] = true;
           out.push({ startPos: rec.startPos + 1, endPos: rec.endPos - 1 });
+        }
+      }
+      return out.sort(function(a, b) { return a.startPos - b.startPos; });
+    },
+
+    function cssBlockFor(text, model) {
+      /** The span { startPos, endPos } of `model`'s own css: value content,
+       *  or null. Taken from the grammar's cssBlock records inside the
+       *  model's extent (modelEntryFor), so two classes with identical css
+       *  text each get their own block, and a model whose extent is
+       *  ambiguous gets none rather than the first block in the file. */
+      var entry = this.modelEntryFor(text, model);
+      if ( ! entry ) return null;
+      var blocks = this.collectCssBlocks(text);
+      for ( var i = 0 ; i < blocks.length ; i++ ) {
+        if ( blocks[i].startPos >= entry.startPos && blocks[i].endPos <= entry.endPos ) return blocks[i];
+      }
+      return null;
+    },
+
+    function collectU2Calls(text) {
+      /** Every u2 builder call in the file's code (`.start(`, `this.addClass(`),
+       *  from the grammar's P.msg(u2Call) records: one { name, intent,
+       *  startPos, endPos, line, col } per call, the span covering the method
+       *  name only, sorted by start. intent comes from U2_BUILDER_CALLS.
+       *  Deduped by startPos for the same backtracking reason as collectRanges. */
+      var byName = this.collectAxiomPositions(text).u2Call;
+      var out = [], seen = {};
+      for ( var name in byName ) {
+        var arr = byName[name];
+        for ( var i = 0 ; i < arr.length ; i++ ) {
+          var rec = arr[i];
+          if ( seen[rec.startPos] ) continue;
+          seen[rec.startPos] = true;
+          out.push({ name: name, intent: this.U2_BUILDER_CALLS[name],
+            startPos: rec.startPos, endPos: rec.endPos, line: rec.line, col: rec.col });
         }
       }
       return out.sort(function(a, b) { return a.startPos - b.startPos; });
@@ -328,6 +380,36 @@ foam.CLASS({
           callSpan: { startPos: span.startPos, endPos: span.endPos }, entries: entries });
       }
       return out;
+    },
+
+    function collectRelationshipProperties(text) {
+      /**
+       * The `sourceProperty: { ... }` and `targetProperty: { ... }` objects of
+       * every foam.RELATIONSHIP in `text`, as [ { side, startPos, endPos } ]
+       * sorted by start; side is 'source' or 'target' and the span runs from
+       * the object's `{` to where it ends. Each object is a property spec
+       * installed on another class, so handlers treat its inside as a
+       * property definition of that class.
+       */
+      var map = this.collectAxiomPositions(text);
+      var out = [];
+      map.relationshipSource.forEach(function(r) {
+        out.push({ side: 'source', startPos: r.startPos, endPos: r.endPos });
+      });
+      map.relationshipTarget.forEach(function(r) {
+        out.push({ side: 'target', startPos: r.startPos, endPos: r.endPos });
+      });
+      return out.sort(function(a, b) { return a.startPos - b.startPos; });
+    },
+
+    function relationshipPropertyAt(text, offset) {
+      /** The collectRelationshipProperties() span holding `offset`, or null.
+       *  The two objects never nest, so at most one holds it. */
+      var spans = this.collectRelationshipProperties(text);
+      for ( var i = 0 ; i < spans.length ; i++ ) {
+        if ( offset >= spans[i].startPos && offset < spans[i].endPos ) return spans[i];
+      }
+      return null;
     },
 
     function findAxiomPosition(text, kind, name) {
@@ -853,6 +935,21 @@ foam.CLASS({
         P.repeat0(P.seq(P.literal('.'), P.seq(P.not(instMethodAhead), classSeg)))
       ));
 
+      // === U2 BUILDER CALLS ===
+      // The method name of a u2 builder call (U2_BUILDER_CALLS), recorded as
+      // `u2Call` for semantic tokens. The name must end there, so `.addClass(`
+      // is not read as `.add(`, and it must be called: `this.start` passed as a
+      // value is not a builder call. Both checks sit inside the msg because a
+      // msg is recorded as soon as its parser succeeds, even when the rule
+      // around it fails afterwards. The lookahead skips plain whitespace only,
+      // since `wsc` inside a peek would record a comment a second time.
+      var u2CallName = P.msg(P.seq(
+        P.alt.apply(P, Object.keys(self.U2_BUILDER_CALLS).map(function(n) {
+          return P.seq(P.literal(n), P.not(identChars));
+        })),
+        P.peek(P.seq(ws, P.literal('(')))
+      ), { kind: 'u2Call' });
+
       // A closing token that the rule treats as optional, tagged so
       // collectModelExtents() can tell a definition that closed from one the
       // parse gave up on. The closer is optional so completion still works on
@@ -1183,6 +1280,8 @@ foam.CLASS({
           P.sym('cssEntry'),
           P.sym('sourceModelEntry'),
           P.sym('targetModelEntry'),
+          P.sym('sourcePropertyEntry'),
+          P.sym('targetPropertyEntry'),
           P.sym('classTypedSlotEntry'),
           P.sym('topLevelKey'),
           P.sym('genericEntry')
@@ -1219,6 +1318,18 @@ foam.CLASS({
           quoted(P.sym('classRef'))),
         targetModelEntry: P.seq(key('targetModel', topHint('targetModel')), wsc, P.literal(':'), wsc,
           quoted(P.sym('classRef'))),
+
+        // sourceProperty/targetProperty: foam.RELATIONSHIP installs each
+        // object as a property on the source/target model, so its inside
+        // parses as a property definition (the same propertyObject rule) and
+        // completion offers property keys there. The object is a span so a
+        // handler can tell which model the property lands on — see
+        // collectRelationshipProperties. Not a 'propertyDef': it is no member
+        // of the relationship itself.
+        sourcePropertyEntry: P.seq(key('sourceProperty', topHint('sourceProperty')), wsc, P.literal(':'), wsc,
+          P.msg(P.sym('propertyObject'), { kind: 'relationshipSource' })),
+        targetPropertyEntry: P.seq(key('targetProperty', topHint('targetProperty')), wsc, P.literal(':'), wsc,
+          P.msg(P.sym('propertyObject'), { kind: 'relationshipTarget' })),
 
         // Generic axiom-class-typed slot: `<key>: 'foo.X'` where <key> is
         // the name of any property defined as Class/Reference/FObjectProperty/
@@ -1294,9 +1405,11 @@ foam.CLASS({
         // block (DocumentColorHandler's swatches) gets its exact span from
         // this parse. The alternative, text.indexOf(model.css), finds the
         // first copy of the text, which is the wrong block when two models in
-        // one file share a css body. The span includes both backticks.
+        // one file share a css body. The span includes both quote marks; any of
+        // the three string forms counts, since css: '^ { ... }' is as valid as
+        // a template literal.
         cssEntry: P.seq(key('css', topHint('css')), wsc, P.literal(':'), wsc,
-          P.msg(backtickString, { kind: 'cssBlock' })),
+          P.msg(stringLiteral, { kind: 'cssBlock' })),
 
         // implements: ['foam.x.Y'] — same classRef parsing as extends.
         // FOAM allows implements to reference any class id, not just
@@ -1638,19 +1751,26 @@ foam.CLASS({
         balancedBraces: P.seq(P.literal('{'), P.str(P.repeat(P.alt(
           P.sym('instClassObject'), P.sym('balancedBraces'), stringLiteral, backtickString,
           lineComment, blockComment, P.sym('instantiationCall'), P.sym('thisMemberRef'),
-          P.notChars('{}')
+          P.sym('u2Call'), P.notChars('{}')
         ), null, 0)), P.literal('}')),
+
+        // A u2 builder call on any receiver: `el.start(`, or `.end()` opening
+        // a line of a chain. `this.start(` never reaches here: thisMemberRef
+        // takes it and records the u2Call itself.
+        u2Call: P.seq(P.literal('.'), u2CallName),
 
         // `this.Ident` / `self.Ident` member access inside code — the FOAM
         // idiom for using a required class (or property/method) in render,
         // init, listeners. Emits the full `this.Ident` span; ReferencesHandler
         // maps the trailing identifier to a class via requires. Runs after
         // instantiationCall so `this.X.create(...)` / `.tag(this.X, ...)` are
-        // claimed by their own rules first.
+        // claimed by their own rules first. A u2 builder name inside it
+        // (`this.start(`) is also recorded as a u2Call; the memberRef span
+        // is the same either way.
         thisMemberRef: P.msg(P.seq(
           P.alt(P.literal('this'), P.literal('self')),
           P.literal('.'),
-          P.str(P.repeat(identChars, null, 1))
+          P.alt(u2CallName, P.str(P.repeat(identChars, null, 1)))
         ), { kind: 'memberRef' }),
 
         balancedBrackets: P.seq(P.literal('['), P.str(P.repeat(P.alt(

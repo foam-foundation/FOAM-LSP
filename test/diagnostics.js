@@ -247,6 +247,23 @@ var twinLines = diagWithTokens.handle(twinCssSrc, 'file:///tmp/lsptest-twin-css.
 test(twinLines.length === 2 && twinLines.indexOf(4) !== -1 && twinLines.indexOf(11) !== -1,
   "Deprecated '^': two classes with the same css: each get their own hint (got lines " + twinLines.join(',') + ')');
 
+// Two same-named classes with the same css: text and no sourceOffset_: the
+// model's extent is ambiguous. Problem: the lookup fell back to offset 0, so
+// the second class's css was read from the FIRST block and its hint landed in
+// the wrong class. Now it finds no block rather than the wrong one.
+var dupCssSrc =
+  "foam.CLASS({\n  package: 'test',\n  name: 'DupCss',\n" +
+  "  css: `\n    ^a { color: red; }\n  `\n})\n" +
+  "foam.CLASS({\n  package: 'test',\n  name: 'DupCss',\n" +
+  "  css: `\n    ^a { color: red; }\n  `\n})";
+var dupModel = { package: 'test', name: 'DupCss', css: '\n    ^a { color: red; }\n  ' };
+test(diagWithTokens.parseCSS_(dupModel, dupCssSrc) === null,
+  'css block: an ambiguous model does not resolve to the first identical css block');
+dupModel.sourceOffset_ = dupCssSrc.indexOf('foam.CLASS', 1);
+var dupBlock = diagWithTokens.parseCSS_(dupModel, dupCssSrc);
+test(dupBlock && dupBlock.base > dupModel.sourceOffset_,
+  "css block: the sourceOffset_ tie-break picks the second class's block");
+
 // Dynamic myClass(var) → suppress unused-class diagnostics entirely
 var dynamicSrc =
   "foam.CLASS({\n  package: 'test',\n  name: 'DynamicMyClass',\n" +
@@ -633,6 +650,36 @@ var indentBody = [
   test(flagged.length > 0,
     'Indented model: expressions are still checked with the call at column ' + pad);
 });
+
+// A foam.RELATIONSHIP's sourceProperty / targetProperty is installed on the
+// source / target model, so its expression arguments name that model's
+// properties, not the relationship's (#10).
+function relDiagSrc(target, view) {
+  return "foam.RELATIONSHIP({\n" +
+    "  sourceModel: 'foam.core.auth.Group',\n" +
+    "  targetModel: '" + target + "',\n" +
+    "  forwardName: 'users',\n" +
+    "  inverseName: 'group',\n" +
+    "  targetProperty: {\n" +
+    "    view: { class: '" + view + "' },\n" +
+    "    expression: function(firstName, noSuchUserProp) { return firstName; }\n" +
+    "  }\n" +
+    "});\n";
+}
+var relDiags = diagHandler.handle(relDiagSrc('foam.core.auth.User', 'foam.u2.view.ReferenceView'),
+  'file:///rel/DiagRel.js');
+var relMissing = relDiags.filter(function(d) { return d.message.indexOf('does not exist') !== -1; });
+test(relMissing.length === 1 && relMissing[0].message ===
+  "Property 'noSuchUserProp' does not exist on foam.core.auth.User",
+  'Relationship targetProperty: expression args are checked against the target model');
+var relUnknownHost = diagHandler.handle(relDiagSrc('foam.parse.lsp.test.NoSuchTarget', 'foam.u2.view.ReferenceView'),
+  'file:///rel/DiagRelUnknown.js');
+test(! relUnknownHost.some(function(d) { return d.message.indexOf('does not exist') !== -1; }),
+  'Relationship targetProperty: an unregistered target model leaves expression args unchecked');
+var relBadView = diagHandler.handle(relDiagSrc('foam.core.auth.User', 'foam.u2.view.NoSuchRelView'),
+  'file:///rel/DiagRelView.js');
+test(relBadView.some(function(d) { return d.message === "Unknown class: 'foam.u2.view.NoSuchRelView'"; }),
+  'Relationship targetProperty: an unknown view class is flagged as in a property');
 
 // === POM COMPLETIONS ===
 

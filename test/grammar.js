@@ -1056,3 +1056,25 @@ test(extentHas("foam.CLASS({\n  name: 'Q',\n  requires: [ 'foam.lang.FObject as 
   'aliased and object-form requires both parse');
 test(extentHas("foam.CLASS({\n  name: 'S',\n  properties: [ ['nodeName', 'DIV'], 'after' ]\n});", 'after'),
   'the [ name, value ] property pair parses as a property');
+
+// foam.RELATIONSHIP's sourceProperty / targetProperty objects are property
+// specs of other models: the grammar reports each one's span and side, and
+// the relationship's entries after them still parse (#10).
+var relGrammarSrc = "foam.RELATIONSHIP({\n" +
+  "  targetProperty: { label: 'Group', view: { class: 'foam.u2.view.ReferenceView' } },\n" +
+  "  sourceProperty: { hidden: true },\n" +
+  "  sourceModel: 'foam.core.auth.Group',\n" +
+  "  targetModel: 'foam.core.auth.User'\n" +
+  "});\n";
+var relSpans = grammar.collectRelationshipProperties(relGrammarSrc);
+test(relSpans.length === 2 && relSpans[0].side === 'target' && relSpans[1].side === 'source' &&
+     relGrammarSrc.charAt(relSpans[0].startPos) === '{' &&
+     relGrammarSrc.charAt(relSpans[0].endPos - 1) === '}' &&
+     relGrammarSrc.substring(relSpans[1].startPos, relSpans[1].endPos) === '{ hidden: true }',
+  'collectRelationshipProperties: one span per object, from { to }, with its side');
+test(grammar.relationshipPropertyAt(relGrammarSrc, relGrammarSrc.indexOf('label')).startPos === relSpans[0].startPos &&
+     grammar.relationshipPropertyAt(relGrammarSrc, relGrammarSrc.indexOf('sourceModel')) === null,
+  'relationshipPropertyAt: the span holding an offset, null outside both');
+var relRefs = grammar.collectAxiomPositions(relGrammarSrc).classRef;
+test(!! relRefs['foam.core.auth.User'] && !! relRefs['foam.u2.view.ReferenceView'],
+  'relationship entries after targetProperty parse, and its view class is a class reference');

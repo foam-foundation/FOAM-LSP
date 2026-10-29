@@ -505,6 +505,17 @@ foam.CLASS({
         }
       }
 
+      var prefix = line.substring(0, position.character);
+
+      // Inside a class value — suggest class ids. The partial keeps its dots:
+      // `"class": "foam.` must still list classes, not the property names of
+      // the enclosing entry. Checked before the enclosing class is resolved,
+      // because a new entry's own class is the value still being typed.
+      var classPartial = this.jrlGrammar.openClassValue(prefix);
+      if ( classPartial !== null ) {
+        return this.getClassNameCompletions_(classPartial, position);
+      }
+
       var entry = this.parseJrlEntry_(line);
       if ( ! entry ) {
         var found = this.findEntryAtLine_(text, position.line);
@@ -516,14 +527,6 @@ foam.CLASS({
 
       var cls = this.index.getClass(classId);
       if ( ! cls ) return { isIncomplete: false, items: [] };
-
-      var prefix = line.substring(0, position.character);
-
-      // After a key colon — suggest class names for "class": or enum values
-      var afterColonMatch = prefix.match(/"(class)"\s*:\s*"?(\w*)$/);
-      if ( afterColonMatch ) {
-        return this.getClassNameCompletions_(afterColonMatch[2]);
-      }
 
       // Inside a key position — suggest property names
       var items = [];
@@ -1092,11 +1095,36 @@ foam.CLASS({
        * triple-quoted and escaped-in-double-quotes forms. Delegate to the
        * normal JRL completion on the unescaped content, adjusted position.
        */
-      return this.handleCompletion(ctx.content, this.embedCursorToPosition_(ctx), null);
+      var result = this.handleCompletion(ctx.content, this.embedCursorToPosition_(ctx), null);
+      // A class-id item's textEdit range is in the block's own coordinates.
+      // The text it replaces is a class id, which holds no escapes, so the
+      // same width ending at the real cursor is its place in the document.
+      result.items.forEach(function(item) {
+        if ( ! item.textEdit ) return;
+        var r     = item.textEdit.range;
+        var width = r.end.character - r.start.character;
+        item.textEdit.range = {
+          start: { line: position.line, character: position.character - width },
+          end:   { line: position.line, character: position.character }
+        };
+      });
+      return result;
     },
 
-    function getClassNameCompletions_(partial) {
-      /** Suggest FOAM class IDs matching partial input. */
+    function getClassNameCompletions_(partial, position) {
+      /**
+       * Suggest FOAM class IDs matching partial input. Each item replaces the
+       * whole partial, from the opening quote to the cursor: the editor's
+       * word stops at a dot, so after `"foam.co` a plain insert would replace
+       * only `co` and write `foam.foam.core...`, and the client would filter
+       * the list on `co` alone. Every match goes out: the registry is not
+       * in name order, so a cap kept an arbitrary slice. For "foam" the first
+       * 51 ids skipped whole packages such as foam.core and foam.comics.v2.
+       */
+      var range = {
+        start: { line: position.line, character: position.character - partial.length },
+        end:   { line: position.line, character: position.character }
+      };
       var allIds = this.index.getAllClassIds();
       var items = [];
       var lower = partial.toLowerCase();
@@ -1105,12 +1133,12 @@ foam.CLASS({
         items.push({
           label: allIds[i],
           kind: 7,
-          insertText: allIds[i],
+          textEdit: { range: range, newText: allIds[i] },
+          filterText: allIds[i],
           sortText: allIds[i]
         });
-        if ( items.length > 50 ) break;
       }
-      return { isIncomplete: items.length > 50, items: items };
+      return { isIncomplete: false, items: items };
     },
 
     function handleDiagnostics(text, opt_uri, opt_caps) {
