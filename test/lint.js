@@ -120,6 +120,8 @@ write('src/com/example/strategyReferences.jrl',
 write('src/com/example/RegisteredAction.js',   "foam.CLASS({ package: 'com.example', name: 'RegisteredAction' });\n");
 write('src/com/example/BareAction.js',         "foam.CLASS({ package: 'com.example', name: 'BareAction' });\n");
 write('src/com/example/UnregisteredAction.js', "foam.CLASS({ package: 'com.example', name: 'UnregisteredAction' });\n");
+write('src/com/example/ChildAction.js',        "foam.CLASS({ package: 'com.example', name: 'ChildAction', extends: 'com.example.UnregisteredAction' });\n");
+write('src/com/example/GrandchildAction.js',   "foam.CLASS({ package: 'com.example', name: 'GrandchildAction', extends: 'com.example.ChildAction' });\n");
 write('src/com/example/SuppressedAction.js',
   "// foam-lint-ignore: strategy-ref\nfoam.CLASS({ package: 'com.example', name: 'SuppressedAction' });\n");
 
@@ -133,7 +135,13 @@ var stubIndex = {
     return [ 'com.example.RegisteredAction', 'com.example.UnregisteredAction', 'com.example.BareAction',
              'com.example.SuppressedAction', 'foam.core.ruler.CompositeRuleAction' ];
   },
-  getSubclasses:   function(id) { return []; },
+  // ChildAction extends an implementor, GrandchildAction extends that, and
+  // GrandchildAction lists ChildAction again to prove a cycle terminates.
+  getSubclasses:   function(id) {
+    return { 'com.example.UnregisteredAction': [ 'com.example.ChildAction' ],
+             'com.example.ChildAction':        [ 'com.example.GrandchildAction' ],
+             'com.example.GrandchildAction':   [ 'com.example.ChildAction' ] }[id] || [];
+  },
   getFilePath:     function(id) {
     // MissingAction has no file at all (true dangling ref); TestOnlyAction
     // resolves to a path but isn't loaded under current flags (flag-gated).
@@ -146,6 +154,11 @@ var stubIndex = {
 
 var handlerWithIndex = foam.parse.lsp.handlers.LintHandler.create({ root: FIX, index: stubIndex });
 var sr = handlerWithIndex.checkStrategyRefs_();
+
+test(sr.some(function(f) { return f.message.indexOf("'com.example.ChildAction'") !== -1; }),
+  'a subclass of an implementor with no StrategyReference entry is flagged');
+test(sr.some(function(f) { return f.message.indexOf("'com.example.GrandchildAction'") !== -1; }),
+  'a subclass two levels below an implementor is flagged, and an extends cycle terminates');
 
 var ghost = sr.filter(function(f) { return f.message.indexOf('MissingAction') !== -1; });
 test(ghost.length === 1 && ghost[0].severity === 'error',

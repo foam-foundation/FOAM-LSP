@@ -220,9 +220,7 @@ foam.CLASS({
       if ( ! this.index ) return findings;
       var srcRoot = path.join(this.root, 'src') + path.sep;
       for ( var t = 0 ; t < targets.length ; t++ ) {
-        var impls = this.index.isInterface(targets[t]) ?
-          this.index.getImplementors(targets[t]) :
-          this.index.getSubclasses(targets[t]);
+        var impls = this.descendants_(targets[t]);
         for ( var k = 0 ; k < impls.length ; k++ ) {
           if ( registered[impls[k]] ) continue;
           var file = this.index.getFilePath(impls[k]);
@@ -240,6 +238,27 @@ foam.CLASS({
         }
       }
       return findings;
+    },
+
+    function descendants_(targetId) {
+      /** Every class that is, or extends, an implementor of the interface
+          (or a subclass of the class) `targetId`. foam.core.om.CCOMRuleAction
+          extends OMRuleAction, a direct RuleAction implementor: the direct
+          lists alone never reached it. `seen` also stops an extends cycle. */
+      var seen  = {};
+      var out   = [];
+      var queue = this.index.isInterface(targetId) ?
+        this.index.getImplementors(targetId).slice() :
+        this.index.getSubclasses(targetId).slice();
+      while ( queue.length ) {
+        var id = queue.shift();
+        if ( seen[id] ) continue;
+        seen[id] = true;
+        out.push(id);
+        var subs = this.index.getSubclasses(id);
+        for ( var i = 0 ; i < subs.length ; i++ ) queue.push(subs[i]);
+      }
+      return out;
     },
 
     function checkPomMembership_() {
