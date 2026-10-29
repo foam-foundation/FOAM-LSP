@@ -336,6 +336,21 @@ test(clientEdit && clientEdit.range.start.line === 1 &&
   'JRL completion in a client block: the class-id edit range is in document coordinates: ' +
     JSON.stringify(clientEdit));
 
+// Issue #6: the class-id list was cut at 51 matches in registry order, so
+// "foam" never listed foam.comics.v2.* or foam.core.* at all.
+var foamPrefixSrc = 'p({\n  "class": "foam.core.menu.Menu",\n  "handler": {\n' +
+  '    "class": "foam.core.menu.DAOMenu2",\n    "config": {\n      "class": "foam';
+var foamPrefixRes = jrlHandler.handleCompletion(foamPrefixSrc, { line: 5, character: 20 }, '');
+var foamLabels = foamPrefixRes.items.map(function(i) { return i.label; });
+var foamIds = index.getAllClassIds().filter(function(id) { return id.toLowerCase().indexOf('foam') !== -1; });
+test(index.getClass('foam.comics.v2.DAOControllerConfig') &&
+     foamLabels.indexOf('foam.comics.v2.DAOControllerConfig') !== -1,
+  'JRL completion: "foam" offers foam.comics.v2.DAOControllerConfig');
+test(foamLabels.some(function(l) { return l.indexOf('foam.core.') === 0; }),
+  'JRL completion: "foam" offers foam.core.* classes');
+test(foamLabels.length === foamIds.length && foamPrefixRes.isIncomplete === false,
+  'JRL completion: "foam" lists every matching class id (' + foamLabels.length + ' of ' + foamIds.length + ')');
+
 // ========== JRL Diagnostics ==========
 
 

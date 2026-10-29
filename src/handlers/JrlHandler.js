@@ -1084,7 +1084,9 @@ foam.CLASS({
        * whole partial, from the opening quote to the cursor: the editor's
        * word stops at a dot, so after `"foam.co` a plain insert would replace
        * only `co` and write `foam.foam.core...`, and the client would filter
-       * the list on `co` alone.
+       * the list on `co` alone. Every match goes out: the registry is not
+       * in name order, so a cap kept an arbitrary slice. For "foam" the first
+       * 51 ids skipped whole packages such as foam.core and foam.comics.v2.
        */
       var range = {
         start: { line: position.line, character: position.character - partial.length },
@@ -1102,9 +1104,8 @@ foam.CLASS({
           filterText: allIds[i],
           sortText: allIds[i]
         });
-        if ( items.length > 50 ) break;
       }
-      return { isIncomplete: items.length > 50, items: items };
+      return { isIncomplete: false, items: items };
     },
 
     function handleDiagnostics(text, opt_uri) {
