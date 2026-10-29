@@ -396,6 +396,34 @@ if ( index.classExists('foam.core.auth.Group') ) {
 }
 
 
+// A foam.RELATIONSHIP's targetProperty is a property spec of the target
+// model: its keys hover as property keys, not class-body keys, and code in it
+// reads the target model's properties (#10).
+section('Hover — relationship targetProperty (#10)');
+var relHoverSrc = "foam.RELATIONSHIP({\n" +
+  "  sourceModel: 'foam.core.auth.Group',\n" +
+  "  targetModel: 'foam.core.auth.User',\n" +
+  "  forwardName: 'users',\n" +
+  "  inverseName: 'group',\n" +
+  "  targetProperty: {\n" +
+  "    label: 'Group',\n" +                                         // line 6
+  "    documentation: 'x',\n" +                                     // line 7
+  "    expression: function(firstName) { return firstName; }\n" +  // line 8
+  "  }\n" +
+  "});\n";
+function relPropHover(line, character) {
+  var r = hoverHandler.handle(relHoverSrc, { line: line, character: character }, 'file:///rel/HoverRel.js');
+  return ( r && r.contents && r.contents.value ) || '';
+}
+test(relPropHover(6, 5).indexOf('Display label for UI') !== -1,
+  'targetProperty: `label` hovers with the property-key hint');
+test(relPropHover(7, 6).indexOf('Property docstring') !== -1,
+  'targetProperty: `documentation` hovers as a property docstring, not class documentation');
+var relArg = relPropHover(8, 27);
+test(relArg.indexOf('**firstName**') !== -1 && relArg.indexOf('String') !== -1,
+  'targetProperty: an expression argument hovers as the target model\'s property');
+
+
 // === byName hover answers about the member, not the whole class ===
 //
 // Tested through the wire rather than through HoverHandler: getPropertyDoc was

@@ -300,6 +300,9 @@ foam.CLASS({
        * Returns 'methodKey' / 'actionKey' / 'sectionKey' / 'messageKey'
        * / 'valueKey' / 'listenerKey' for the recognized inner scopes,
        * 'propKey' inside a property object, or 'topKey' as the default.
+       * A foam.RELATIONSHIP's `sourceProperty: { ... }` / `targetProperty:
+       * { ... }` is a property object too, though no `properties: [` holds
+       * it: the grammar says when the innermost `{` opens one.
        *
        * String / comment bodies are skipped so cursors inside javaCode
        * blocks don't false-match brackets in the code.
@@ -314,6 +317,8 @@ foam.CLASS({
         properties: 'propKey'
       };
       var offset = this.analyzer.positionToOffset(text, position);
+      var grammar = this.index.getGrammar && this.index.getGrammar();
+      var rel = grammar && grammar.relationshipPropertyAt(text, offset);
 
       // Walk back skipping strings/comments. Track [ and { depth
       // separately so we can step out of the inner `{` and then look
@@ -341,6 +346,7 @@ foam.CLASS({
         if ( ch === '}' ) braceDepth++;
         else if ( ch === '{' ) {
           if ( braceDepth > 0 ) { braceDepth--; continue; }
+          if ( rel && rel.startPos === i ) return 'propKey';
           // Stepped out of the innermost `{`. Keep walking — we want
           // the enclosing `[` if there is one.
           continue;
@@ -367,9 +373,17 @@ foam.CLASS({
     },
 
     function resolveCurrentClass_(text, position, opt_uri) {
-      /** Get the class ID of the model at the cursor position. */
+      /** Get the class ID of the model at the cursor position. Inside a
+       *  foam.RELATIONSHIP's `targetProperty: { ... }` that is the target
+       *  model, the class the property is installed on: `firstName` in its
+       *  `expression: function(firstName)` is the target's property. */
       var model = this.cache.getModelAt(opt_uri || '', text, position.line);
       if ( ! model ) return null;
+      var grammar = this.index.getGrammar && this.index.getGrammar();
+      var rel = grammar && grammar.relationshipPropertyAt(text,
+        this.analyzer.positionToOffset(text, position));
+      var spec = rel && this.index.getRelationshipProperty(model, rel.side);
+      if ( spec && spec.hostClassId ) return spec.hostClassId;
       return this.cache.getClassId(model);
     },
 

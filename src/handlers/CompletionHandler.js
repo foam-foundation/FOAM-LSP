@@ -173,7 +173,7 @@ foam.CLASS({
       // covers the universal Property keys; the class-specific extras come
       // from the registry per call so adding a new Property type instantly
       // gains its slots without grammar changes.
-      this.augmentWithClassAxioms_(items, text, position);
+      this.augmentWithClassAxioms_(items, text, position, uri);
 
       // Fallback: if grammar found no suggestions, detect context from line text
       if ( items.length === 0 ) {
@@ -183,7 +183,7 @@ foam.CLASS({
       return { isIncomplete: items.length > 200, items: this.toLSPItems_(items) };
     },
 
-    function augmentWithClassAxioms_(items, text, position) {
+    function augmentWithClassAxioms_(items, text, position, opt_uri) {
       /**
        * Append class-specific Property axiom keys when the cursor sits inside
        * a property object that already declares `class: 'X'`. The list is
@@ -192,7 +192,7 @@ foam.CLASS({
        * duplicates an existing entry.
        */
       if ( ! this.isInsidePropertyObject_(text, position) ) return;
-      var classId = this.findCurrentPropertyClassId_(text, position);
+      var classId = this.findCurrentPropertyClassId_(text, position, opt_uri);
       if ( ! classId ) return;
 
       // Build a lookup of names already suggested.
@@ -382,7 +382,7 @@ foam.CLASS({
       // class-specific slots on top of the inherited ones.
       if ( this.isInsidePropertyObject_(text, position) ) {
         var partial = prefix.trim().toLowerCase();
-        var classId = this.findCurrentPropertyClassId_(text, position);
+        var classId = this.findCurrentPropertyClassId_(text, position, opt_uri);
         var keys    = this.propertyAxiomKeys_(classId);
         var items = [];
         for ( var i = 0 ; i < keys.length ; i++ ) {
@@ -402,12 +402,16 @@ foam.CLASS({
       return [];
     },
 
-    function findCurrentPropertyClassId_(text, position) {
+    function findCurrentPropertyClassId_(text, position, opt_uri) {
       /**
        * Walk back from the cursor to the opening `{` of the enclosing
        * property object, then scan that object for a `class:` slot. Returns
        * the FOAM class id of the property type (e.g., 'foam.lang.String')
        * or null if no `class:` is present (FOAM's default is String).
+       *
+       * A foam.RELATIONSHIP's `targetProperty: { ... }` has no `class:`: the
+       * relationship picks it (a Reference on a 1:* target side), and that
+       * class is answered instead — see FoamIndex.getRelationshipProperty.
        *
        * Brace/string-aware scanning, no regex.
        */
@@ -415,6 +419,13 @@ foam.CLASS({
       var cursorOffset = this.analyzer.positionToOffset(text, position);
       var openBracePos = this.findEnclosingBracePos_(text, cursorOffset);
       if ( openBracePos < 0 ) return null;
+
+      var rel = this.grammar.relationshipPropertyAt(text, openBracePos);
+      if ( rel && rel.startPos === openBracePos ) {
+        var spec = this.index.getRelationshipProperty(
+          this.cache.getModelAt(opt_uri || '', text, position.line), rel.side);
+        return spec ? spec.propertyClassId : null;
+      }
 
       // Slice the property object's source up to the cursor — that's all the
       // user has typed so far. The property's `class:` may appear before the
