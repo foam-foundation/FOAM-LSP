@@ -82,7 +82,7 @@ The FOAM LSP server announces these capabilities to the editor:
 | **Signature Help** | `textDocument/signatureHelp` | Method parameter hints (triggered by `(` and `,`) |
 | **Workspace Symbols** | `workspace/symbol` | Search all FOAM classes by name |
 | **Folding Ranges** | `textDocument/foldingRange` | Fold properties, methods, requires, imports, exports, javaImports, actions, listeners |
-| **Semantic Tokens** | `textDocument/semanticTokens/full` | Highlights resolved class references and typed variables |
+| **Semantic Tokens** | `textDocument/semanticTokens/full` | Highlights resolved class references and typed variables; marks u2 builder calls with a modifier per intent (`u2Pair` for start/end, `u2Content`, `u2Styling`, `u2Reactive`) |
 | **Code Actions** | `textDocument/codeAction` | "Did you mean X?" for unknown classes, fix wrong Java imports |
 | **JRL Support** | (hover + semantic tokens) | Hover and highlighting for `.jrl` (FOAM Journal) files |
 

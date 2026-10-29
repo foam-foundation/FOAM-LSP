@@ -203,6 +203,95 @@ test(selfTypes.indexOf('4:13') !== -1 && selfTypes.indexOf('5:4') !== -1,
   'Semantic tokens: <<popup-title and ^old are each one type token (got ' + selfTypes.join(', ') + ')');
 
 
+// === Semantic tokens — u2 builder calls by intent (#8) ===
+//
+// In u2 view code start() and end() read like any other call, so where a
+// child element opens and closes is lost among the add()s. Each builder call
+// is a method token whose modifier names its intent; start and end share one.
+
+section('Semantic tokens — u2 builder calls by intent');
+// Registered so the handler's registry lookup finds Element's start/addClass
+// methods: this.addClass then also gets a plain method token, which the u2
+// token must replace rather than overlap.
+foam.CLASS({ package: 'test.u2tokens', name: 'U2Intents', extends: 'foam.u2.View' });
+var u2Text = [
+  "foam.CLASS({",                                                      // 0
+  "  package: 'test.u2tokens', name: 'U2Intents', extends: 'foam.u2.View',", // 1
+  "  methods: [",                                                      // 2
+  "    function render() {",                                           // 3
+  "      var self = this;",                                            // 4
+  "      this.addClass().start('div')",                                // 5
+  "        .enableClass('on', this.on$)",                              // 6
+  "        .style({ color: 'red' }).attrs({ a: 1 })",                  // 7
+  "        .add(this.dynamic(function(x) { this.tag(self.Foo, {}); }))", // 8
+  "        // .start( in a comment",                                   // 9
+  "        .add('.end( in a string')",                                 // 10
+  "        .start ('span').end()",                                     // 11
+  "      .end();",                                                     // 12
+  "      self.startFoo(); this.addClassName(); var f = this.start;",   // 13
+  "    }",
+  "  ]",
+  "});"
+].join('\n');
+
+var u2Calls = h.index.getGrammar().collectU2Calls(u2Text).map(function(c) {
+  return c.line + ':' + c.col + ' ' + c.name + ' ' + c.intent;
+});
+test(JSON.stringify(u2Calls) === JSON.stringify([
+  '5:11 addClass u2Styling', '5:22 start u2Pair', '6:9 enableClass u2Styling',
+  '7:9 style u2Styling', '7:33 attrs u2Styling', '8:9 add u2Content',
+  '8:18 dynamic u2Reactive', '8:45 tag u2Content', '10:9 add u2Content',
+  '11:9 start u2Pair', '11:24 end u2Pair', '12:7 end u2Pair'
+]), 'collectU2Calls: every builder call, on this/self/a chain, with its intent; ' +
+  'none in comments or strings, none for startFoo/addClassName or an uncalled this.start (got ' +
+  JSON.stringify(u2Calls) + ')');
+test(Object.keys(h.index.getGrammar().collectAxiomPositions(u2Text).memberRef).indexOf('this.start') !== -1,
+  'collectU2Calls: this.start is still a memberRef record for references');
+
+var MODS = semanticHandler.TOKEN_MODIFIERS, METHOD = semanticHandler.TOKEN_TYPES.indexOf('method');
+test(Object.keys(foam.parse.lsp.FoamClassGrammar.U2_BUILDER_CALLS).every(function(n) {
+  return MODS.indexOf(foam.parse.lsp.FoamClassGrammar.U2_BUILDER_CALLS[n]) !== -1;
+}), 'Semantic tokens: every U2_BUILDER_CALLS intent is a declared token modifier');
+
+function tokensAt(data) {
+  var out = {}, line = 0, ch = 0;
+  for ( var i = 0 ; i < data.length ; i += 5 ) {
+    line += data[i]; ch = data[i] === 0 ? ch + data[i + 1] : data[i + 1];
+    var key = line + ':' + ch;
+    out[key] = ( out[key] || [] ).concat([ { length: data[i + 2], type: data[i + 3], modifiers: data[i + 4] } ]);
+  }
+  return out;
+}
+function u2Mod(name) { return 1 << MODS.indexOf(name); }
+var u2Tok = tokensAt(semanticHandler.handle(u2Text, 'file:///tmp/lsptest-u2-intents.js').data);
+function oneU2(pos, len, mod) {
+  var t = u2Tok[pos];
+  return t && t.length === 1 && t[0].length === len && t[0].type === METHOD && t[0].modifiers === u2Mod(mod);
+}
+test(oneU2('5:11', 8, 'u2Styling'),
+  'Semantic tokens: this.addClass is one u2 token, not a u2 token over a plain method token');
+test(oneU2('5:22', 5, 'u2Pair') && oneU2('12:7', 3, 'u2Pair'),
+  'Semantic tokens: the start() and end() of one element carry the same u2Pair modifier');
+test(oneU2('8:9', 3, 'u2Content') && oneU2('8:45', 3, 'u2Content'),
+  'Semantic tokens: add() and tag() carry u2Content');
+test(oneU2('5:11', 8, 'u2Styling') && oneU2('6:9', 11, 'u2Styling') &&
+     oneU2('7:9', 5, 'u2Styling') && oneU2('7:33', 5, 'u2Styling'),
+  'Semantic tokens: addClass/enableClass/style/attrs carry u2Styling');
+test(oneU2('8:18', 7, 'u2Reactive'), 'Semantic tokens: dynamic() carries u2Reactive');
+test(! u2Tok['9:12'] && ! u2Tok['10:14'], 'Semantic tokens: no u2 token in a comment or a string');
+
+var u2Off = foam.parse.lsp.handlers.SemanticTokenHandler.create({
+  index: h.index, cache: h.cache, typeTracker: h.typeTracker,
+  featureConfig: require('../src/FeatureConfig').load({ initOptions: { features: { 'semanticTokens.u2': false } } })
+});
+var offTok = tokensAt(u2Off.handle(u2Text, 'file:///tmp/lsptest-u2-intents.js').data);
+test(Object.keys(offTok).every(function(k) {
+  return offTok[k].every(function(t) { return t.modifiers < u2Mod('u2Pair'); });
+}), 'Semantic tokens: semanticTokens.u2 off emits no u2 modifier');
+test(offTok['5:11'] && offTok['5:11'][0].type === METHOD,
+  'Semantic tokens: with u2 off, this.addClass keeps its plain method token');
+
+
 // === DocumentSymbol extents ===
 //
 // The outline used to give every symbol a zero-width range at its name, so

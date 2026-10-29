@@ -18,8 +18,11 @@ foam.CLASS({
   ],
 
   constants: {
+    // server.js advertises both lists as the semanticTokens legend, so a
+    // token's type and modifier bits are positions in these arrays.
     TOKEN_TYPES: ['type', 'class', 'variable', 'keyword', 'string', 'comment', 'number', 'operator', 'method'],
-    TOKEN_MODIFIERS: ['declaration', 'readonly']
+    // The u2 modifiers are the intents of FoamClassGrammar.U2_BUILDER_CALLS.
+    TOKEN_MODIFIERS: ['declaration', 'readonly', 'u2Pair', 'u2Content', 'u2Styling', 'u2Reactive']
   },
 
   properties: [
@@ -50,10 +53,22 @@ foam.CLASS({
       class: 'FObjectProperty',
       of: 'foam.parse.lsp.CSSTokenResolver',
       name: 'cssTokenResolver'
+    },
+    {
+      name: 'featureConfig',
+      documentation: 'Optional feature-toggle config from src/FeatureConfig ' +
+        '(server.js wires it). Plain Node object, not an FObject, so no `class:` ' +
+        'here — same convention as DiagnosticsHandler.featureConfig. Null means ' +
+        '"every flag on", so a handler created bare in tests still emits u2 tokens.'
     }
   ],
 
   methods: [
+    function featureOn_(flag) {
+      /** True when `flag` is enabled, or when no featureConfig is wired at all. */
+      return ! this.featureConfig || this.featureConfig.enabled(flag);
+    },
+
     function handle(text, opt_uri) {
       /** Returns encoded semantic tokens array for the file. */
       var models = this.cache.getModels(opt_uri || '', text);
@@ -64,6 +79,7 @@ foam.CLASS({
         this.collectJavaTokens_(text, models[i], tokens);
         this.collectCSSTokens_(text, models[i], tokens);
       }
+      if ( this.featureOn_('semanticTokens.u2') ) tokens = this.addU2Tokens_(text, tokens);
 
       // F1: drop non-comment tokens that fall inside comment / documentation
       // spans. Comment-as-comment coloring (token type 5) is preserved. Spans
@@ -238,6 +254,33 @@ foam.CLASS({
           tokens.push({ line: lineNum, char: match.index, length: match[1].length, type: 2, modifiers: 2 });
         }
       }
+    },
+
+    function addU2Tokens_(text, tokens) {
+      /**
+       * u2 builder calls in u2 view code are hard to skim: `start()` and
+       * `end()` read like any other call, so where a child element opens and
+       * closes is lost among the `add()`s. Each call the grammar finds
+       * (FoamClassGrammar.collectU2Calls) becomes a method token whose
+       * modifier names its intent, so `.start(` and `.end(` share u2Pair
+       * while `.add(` gets u2Content and `.dynamic(` u2Reactive. A `this.start`
+       * that collectModelTokens_ already marked as a plain method gives way
+       * to the u2 token, since two tokens on one span are invalid.
+       */
+      var grammar = this.index.getGrammar && this.index.getGrammar();
+      if ( ! grammar ) return tokens;
+      var calls = grammar.collectU2Calls(text);
+      if ( ! calls.length ) return tokens;
+      var taken = {};
+      for ( var i = 0 ; i < calls.length ; i++ ) taken[calls[i].line + ':' + calls[i].col] = true;
+      var out = tokens.filter(function(t) { return ! taken[t.line + ':' + t.char]; });
+      for ( var i = 0 ; i < calls.length ; i++ ) {
+        var c = calls[i];
+        out.push({ line: c.line, char: c.col, length: c.endPos - c.startPos,
+          type: this.TOKEN_TYPES.indexOf('method'),
+          modifiers: 1 << this.TOKEN_MODIFIERS.indexOf(c.intent) });
+      }
+      return out;
     },
 
     function computeStructuralRanges_(lines) {
