@@ -17,6 +17,22 @@ foam.CLASS({
     'foam.parse.lsp.FoamIndex'
   ],
 
+  constants: {
+    // The foam.u2.Element builder calls collectU2Calls reports, each with the
+    // intent a reader skims for: u2Pair opens and closes a child element
+    // (start/end), u2Content puts something inside it (add/tag), u2Styling
+    // changes the element itself (addClass/enableClass/style/attrs) and
+    // u2Reactive re-renders when a slot changes (dynamic). SemanticTokenHandler
+    // turns each intent into a token modifier of the same name, so editors
+    // can colour start/end as one pair and dynamic apart from add.
+    U2_BUILDER_CALLS: {
+      start: 'u2Pair', end: 'u2Pair',
+      add: 'u2Content', tag: 'u2Content',
+      addClass: 'u2Styling', enableClass: 'u2Styling', style: 'u2Styling', attrs: 'u2Styling',
+      dynamic: 'u2Reactive'
+    }
+  },
+
   properties: [
     {
       class: 'FObjectProperty',
@@ -101,7 +117,7 @@ foam.CLASS({
         pomFileName: bucket(), pomFlagValue: bucket(), pomJavaFileName: bucket(),
         classRef: bucket(), comment:  bucket(), documentation: bucket(), cssBlock: bucket(),
         instCall: bucket(), instCreateReceiver: bucket(), instTagClass: bucket(), instClassRef: bucket(),
-        instKey: bucket(), instValue: bucket(), memberRef: bucket(),
+        instKey: bucket(), instValue: bucket(), memberRef: bucket(), u2Call: bucket(),
         headEntry: bucket(), requiresEntry: bucket(),
         modelCall: [], modelName: [], modelPackage: [], modelRefines: [],
         propertyDef: [], methodDef: [],
@@ -129,7 +145,7 @@ foam.CLASS({
       // see the same first record they always did.
       var MULTI = { classRef: true, comment: true, documentation: true, cssBlock: true,
         instCall: true, instCreateReceiver: true, instTagClass: true,
-        instClassRef: true, instKey: true, instValue: true, memberRef: true,
+        instClassRef: true, instKey: true, instValue: true, memberRef: true, u2Call: true,
         // pom scalar values repeat across entries ('js' in ten files:
         // rows), so unlike pomFileName these keep every span.
         pomFlagValue: true, pomJavaFileName: true,
@@ -252,6 +268,27 @@ foam.CLASS({
           if ( seen[rec.startPos] ) continue;
           seen[rec.startPos] = true;
           out.push({ startPos: rec.startPos + 1, endPos: rec.endPos - 1 });
+        }
+      }
+      return out.sort(function(a, b) { return a.startPos - b.startPos; });
+    },
+
+    function collectU2Calls(text) {
+      /** Every u2 builder call in the file's code (`.start(`, `this.addClass(`),
+       *  from the grammar's P.msg(u2Call) records: one { name, intent,
+       *  startPos, endPos, line, col } per call, the span covering the method
+       *  name only, sorted by start. intent comes from U2_BUILDER_CALLS.
+       *  Deduped by startPos for the same backtracking reason as collectRanges. */
+      var byName = this.collectAxiomPositions(text).u2Call;
+      var out = [], seen = {};
+      for ( var name in byName ) {
+        var arr = byName[name];
+        for ( var i = 0 ; i < arr.length ; i++ ) {
+          var rec = arr[i];
+          if ( seen[rec.startPos] ) continue;
+          seen[rec.startPos] = true;
+          out.push({ name: name, intent: this.U2_BUILDER_CALLS[name],
+            startPos: rec.startPos, endPos: rec.endPos, line: rec.line, col: rec.col });
         }
       }
       return out.sort(function(a, b) { return a.startPos - b.startPos; });
@@ -852,6 +889,21 @@ foam.CLASS({
         classSeg,
         P.repeat0(P.seq(P.literal('.'), P.seq(P.not(instMethodAhead), classSeg)))
       ));
+
+      // === U2 BUILDER CALLS ===
+      // The method name of a u2 builder call (U2_BUILDER_CALLS), recorded as
+      // `u2Call` for semantic tokens. The name must end there, so `.addClass(`
+      // is not read as `.add(`, and it must be called: `this.start` passed as a
+      // value is not a builder call. Both checks sit inside the msg because a
+      // msg is recorded as soon as its parser succeeds, even when the rule
+      // around it fails afterwards. The lookahead skips plain whitespace only,
+      // since `wsc` inside a peek would record a comment a second time.
+      var u2CallName = P.msg(P.seq(
+        P.alt.apply(P, Object.keys(self.U2_BUILDER_CALLS).map(function(n) {
+          return P.seq(P.literal(n), P.not(identChars));
+        })),
+        P.peek(P.seq(ws, P.literal('(')))
+      ), { kind: 'u2Call' });
 
       // A closing token that the rule treats as optional, tagged so
       // collectModelExtents() can tell a definition that closed from one the
@@ -1638,19 +1690,26 @@ foam.CLASS({
         balancedBraces: P.seq(P.literal('{'), P.str(P.repeat(P.alt(
           P.sym('instClassObject'), P.sym('balancedBraces'), stringLiteral, backtickString,
           lineComment, blockComment, P.sym('instantiationCall'), P.sym('thisMemberRef'),
-          P.notChars('{}')
+          P.sym('u2Call'), P.notChars('{}')
         ), null, 0)), P.literal('}')),
+
+        // A u2 builder call on any receiver: `el.start(`, or `.end()` opening
+        // a line of a chain. `this.start(` never reaches here: thisMemberRef
+        // takes it and records the u2Call itself.
+        u2Call: P.seq(P.literal('.'), u2CallName),
 
         // `this.Ident` / `self.Ident` member access inside code — the FOAM
         // idiom for using a required class (or property/method) in render,
         // init, listeners. Emits the full `this.Ident` span; ReferencesHandler
         // maps the trailing identifier to a class via requires. Runs after
         // instantiationCall so `this.X.create(...)` / `.tag(this.X, ...)` are
-        // claimed by their own rules first.
+        // claimed by their own rules first. A u2 builder name inside it
+        // (`this.start(`) is also recorded as a u2Call; the memberRef span
+        // is the same either way.
         thisMemberRef: P.msg(P.seq(
           P.alt(P.literal('this'), P.literal('self')),
           P.literal('.'),
-          P.str(P.repeat(identChars, null, 1))
+          P.alt(u2CallName, P.str(P.repeat(identChars, null, 1)))
         ), { kind: 'memberRef' }),
 
         balancedBrackets: P.seq(P.literal('['), P.str(P.repeat(P.alt(

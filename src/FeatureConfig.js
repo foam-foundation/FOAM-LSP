@@ -30,6 +30,7 @@ var DEFAULTS = Object.freeze({
   'completion.autoRequires': true,
   'hover': true,
   'semanticTokens': true,
+  'semanticTokens.u2': true,
   'signatureHelp': true,
   'folding': true,
   'documentColor': true,

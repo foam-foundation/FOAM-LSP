@@ -80,6 +80,11 @@
           "default": true,
           "description": "Semantic highlighting for resolved class references and typed variables. Takes effect after a server restart."
         },
+        "foam.features.semanticTokens.u2": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mark u2 builder calls by intent so start()/end() read as a pair: start/end, add/tag, addClass/enableClass/style/attrs and dynamic each get their own colour. Needs foam.features.semanticTokens. Takes effect after a server restart."
+        },
         "foam.features.signatureHelp": {
           "type": "boolean",
           "default": true,
@@ -161,6 +166,22 @@
         }
       }
     },
+    "semanticTokenModifiers": [
+      { "id": "u2Pair", "description": "A u2 start() or end() call: opens or closes a child element." },
+      { "id": "u2Content", "description": "A u2 add() or tag() call: puts content inside the current element." },
+      { "id": "u2Styling", "description": "A u2 addClass(), enableClass(), style() or attrs() call: changes the current element." },
+      { "id": "u2Reactive", "description": "A dynamic() call: re-renders when a slot it reads changes." }
+    ],
+    "semanticTokenScopes": [
+      {
+        "scopes": {
+          "method.u2Pair": [ "keyword.control.u2.foam" ],
+          "method.u2Content": [ "support.function.u2.foam" ],
+          "method.u2Styling": [ "entity.other.attribute-name.u2.foam" ],
+          "method.u2Reactive": [ "storage.type.u2.foam" ]
+        }
+      }
+    ],
     "languages": [
       {
         "id": "foam-journal",

@@ -715,6 +715,7 @@ function start() {
         codeActionHandler.featureConfig  = featureConfig;
         codeLensHandler.featureConfig    = featureConfig;
         memberHandler.featureConfig      = featureConfig;
+        semanticTokenHandler.featureConfig = featureConfig;
         // What the client can render on a completion item (labelDetails).
         // Both completion handlers shape their items for it, so an older
         // client keeps getting exactly the fields it got before.
@@ -836,8 +837,8 @@ function start() {
         if ( featureConfig.enabled('semanticTokens') ) {
           caps.semanticTokensProvider = {
             legend: {
-              tokenTypes: ['type', 'class', 'variable', 'keyword', 'string', 'comment', 'number', 'operator', 'method'],
-              tokenModifiers: ['declaration', 'readonly']
+              tokenTypes:     semanticTokenHandler.TOKEN_TYPES,
+              tokenModifiers: semanticTokenHandler.TOKEN_MODIFIERS
             },
             full: true
           };
