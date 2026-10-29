@@ -26,7 +26,10 @@ foam.CLASS({
 
     // InsertTextFormat
     FORMAT_PLAIN: 1,
-    FORMAT_SNIPPET: 2
+    FORMAT_SNIPPET: 2,
+
+    // CompletionItemTag
+    TAG_DEPRECATED: 1   // editor strikes the label through
   },
 
   properties: [
@@ -41,6 +44,7 @@ foam.CLASS({
     { class: 'String', name: 'sortText' },
     { class: 'Boolean', name: 'preselect' },
     { name: 'labelDetails' },     // { detail?, description? } — see toLSPItems
+    { class: 'Array', name: 'tags' }, // CompletionItemTag values — see toLSPItems
     { name: 'additionalTextEdits' } // [{ range, newText }] applied with the pick
   ],
 
@@ -59,18 +63,26 @@ foam.CLASS({
        * plain `detail` string is never touched, so an older client sees the
        * same list it always did.
        *
+       * `tags` (TAG_DEPRECATED on a property marked `deprecated:`) gets the
+       * same treatment: kept only as far as the client listed the value in
+       * `completionItem.tagSupport.valueSet`.
+       *
        * Model instances (CompletionItem) are flattened via toLSP(); raw
        * objects pass through, copied only when a field has to go.
        */
       if ( ! items ) return items;
       var keepLabelDetails = !! ( opt_itemSupport && opt_itemSupport.labelDetailsSupport );
+      var tagSet = opt_itemSupport && opt_itemSupport.tagSupport && opt_itemSupport.tagSupport.valueSet;
       var out = new Array(items.length);
       for ( var i = 0 ; i < items.length ; i++ ) {
         var it = items[i];
         var o  = ( it && typeof it.toLSP === 'function' ) ? it.toLSP() : it;
-        if ( o && o.labelDetails && ! keepLabelDetails ) {
+        if ( o && ( ( o.labelDetails && ! keepLabelDetails ) || o.tags ) ) {
           o = Object.assign({}, o);
-          delete o.labelDetails;
+          if ( ! keepLabelDetails ) delete o.labelDetails;
+          var tags = o.tags && Array.isArray(tagSet) ?
+            o.tags.filter(function(t) { return tagSet.indexOf(t) !== -1; }) : [];
+          if ( tags.length ) o.tags = tags; else delete o.tags;
         }
         out[i] = o;
       }
@@ -91,6 +103,7 @@ foam.CLASS({
       if ( this.sortText ) o.sortText = this.sortText;
       if ( this.preselect ) o.preselect = this.preselect;
       if ( this.labelDetails ) o.labelDetails = this.labelDetails;
+      if ( this.tags.length ) o.tags = this.tags;
       if ( this.additionalTextEdits ) o.additionalTextEdits = this.additionalTextEdits;
       return o;
     }

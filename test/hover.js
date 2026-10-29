@@ -395,6 +395,33 @@ if ( index.classExists('foam.core.auth.Group') ) {
     'cardinality (*:* or 1:*) appears verbatim in relationship hover');
 }
 
+// === Deprecated marker in hover (FOAM-LSP #5) ===
+// `deprecated:` is read back from the declaring source file
+// (FoamIndex.getDeprecation); hover says so, with the marker's text when it
+// has one. foam.u2.DetailView: `deprecated: 'Use SectionedDetailView or
+// VerticalDetailView.'`; StepWizardConfig.wizardView: `deprecated: true`.
+section('Hover — deprecated class and property');
+(function() {
+  var clsMd = ( hoverHandler.buildClassHover('foam.u2.DetailView') || { contents: {} } ).contents.value || '';
+  test(clsMd.indexOf('**Deprecated.** Use SectionedDetailView or VerticalDetailView.') !== -1,
+    'class hover: a deprecated class says Deprecated with its replacement');
+  var okMd = ( hoverHandler.buildClassHover('foam.u2.View') || { contents: {} } ).contents.value || '';
+  test(okMd && okMd.indexOf('Deprecated') === -1, 'class hover: a class with no marker says nothing');
+
+  var depSrc = "foam.CLASS({\n  package: 'test',\n  name: 'HoverDep',\n" +
+    "  requires: [ 'foam.u2.wizard.StepWizardConfig' ],\n" +
+    "  methods: [ function f() {\n" +
+    "    this.StepWizardConfig.create({\n      wizardView: 'x',\n      allowSkipping: true\n    });\n  } ]\n})";
+  var wv = hoverHandler.handle(depSrc, { line: 6, character: 8 });
+  var wvMd = ( wv && wv.contents && wv.contents.value ) || '';
+  test(wvMd.indexOf('**wizardView**') === 0 && wvMd.indexOf('**Deprecated.**') !== -1,
+    'property hover: a .create({}) key naming a deprecated property says Deprecated: ' + JSON.stringify(wvMd.substring(0, 60)));
+  var as = hoverHandler.handle(depSrc, { line: 7, character: 8 });
+  var asMd = ( as && as.contents && as.contents.value ) || '';
+  test(asMd.indexOf('**allowSkipping**') === 0 && asMd.indexOf('Deprecated') === -1,
+    'property hover: a property with no marker says nothing');
+})();
+
 
 // === byName hover answers about the member, not the whole class ===
 //

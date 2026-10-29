@@ -82,11 +82,6 @@ foam.CLASS({
         handler in a test, or a client that declared nothing) sends neither.`
     },
     {
-      name: 'rawModelFiles_',
-      documentation: 'Raw file models of OTHER classes read for their deprecated: marker, keyed by file path: { mtimeMs, models }. See rawModelOf_.',
-      factory: function() { return {}; }
-    },
-    {
       name: 'pomValidator',
       documentation: 'Optional (server.js wires it). When set, handle() runs entry-level pom checks (validateEntries) on texts containing foam.POM(, gated by diagnostics.pom; null-safe no-op otherwise.'
     },
@@ -1296,19 +1291,15 @@ foam.CLASS({
 
     function addDeprecatedClassDiag_(diagnostics, text, offset, classId) {
       /**
-       * FOAM has no runtime deprecation flag. Authors mark a class with a
-       * plain `deprecated:` key on its model — foam.u2.DetailView carries
-       * `deprecated: 'Use SectionedDetailView or VerticalDetailView.'` — and
-       * the Model class does not declare that key, so the registry drops it
-       * and nothing warned a file that still extends or requires the class.
-       * Read the marker from the class's own source file instead, and flag
-       * the reference as a HINT tagged DEPRECATED (the editor strikes it
+       * A class marked `deprecated:` in its source (FoamIndex.getDeprecation)
+       * gave no warning to a file that still extends or requires it. Flag the
+       * reference as a HINT tagged DEPRECATED (the editor strikes it
        * through), pointing back at the class declaration.
        */
-      var dep = this.deprecationOf_(classId, null);
-      if ( dep === null ) return;
+      var dep = this.index.getDeprecation(classId);
+      if ( ! dep ) return;
       this.addDiag_(diagnostics, text, offset, classId.length, this.Diagnostic.HINT,
-        "'" + classId + "' is deprecated" + ( dep ? ': ' + dep : '' ),
+        "'" + classId + "' is deprecated" + ( dep.message ? ': ' + dep.message : '' ),
         'deprecated-class',
         { tags: [ this.Diagnostic.DEPRECATED ],
           relatedInformation: this.relatedAt_(classId, null, 0, classId + ' is declared deprecated here') });
@@ -1319,104 +1310,18 @@ foam.CLASS({
        * Same marker on a property — StepWizardConfig.wizardView is declared
        * `{ deprecated: true, ... }` — flagged at the key of a
        * X.create({ wizardView: ... }) or .tag(this.X, { ... }) entry. The
-       * property may be inherited, so the classes up the extends chain are
-       * checked in turn; the first one declaring the property decides.
+       * property may be inherited; getDeprecation finds the class that
+       * declares it.
        */
-      var owner = this.propertyOwner_(classId, entry.key);
-      if ( ! owner ) return;
-      var dep = this.deprecationOf_(owner, entry.key);
-      if ( dep === null ) return;
+      var dep = this.index.getDeprecation(classId, entry.key);
+      if ( ! dep ) return;
       var off = entry.keyPos.startPos;
       this.addDiag_(diagnostics, text, off, entry.keyPos.endPos - off, this.Diagnostic.HINT,
-        "'" + entry.key + "' is deprecated on " + owner + ( dep ? ': ' + dep : '' ),
+        "'" + entry.key + "' is deprecated on " + dep.owner + ( dep.message ? ': ' + dep.message : '' ),
         'deprecated-property',
         { tags: [ this.Diagnostic.DEPRECATED ],
-          relatedInformation: this.relatedAt_(owner, entry.key, 7 /* SymbolKind.Property */,
-            owner + '.' + entry.key + ' is declared deprecated here') });
-    },
-
-    function propertyOwner_(classId, propName) {
-      /**
-       * The nearest class up classId's extends chain whose model declares
-       * propName, or null. Refinements are not consulted.
-       *
-       * Asked of the registry, not of the raw files: rawModelOf_ reports a
-       * file without the word 'deprecated' as having no models, so walking
-       * raw files would skip a subclass that re-declares an ancestor's
-       * deprecated property and flag the ancestor's marker instead. The
-       * registry knows every class's own properties; only the owner's raw
-       * file is then read, for the marker the registry drops.
-       */
-      var id = classId, guard = 0;
-      while ( id && guard++ < 32 ) {
-        var cls = this.index.getClass(id);
-        if ( ! cls || ! cls.model_ ) return null;
-        var props = cls.model_.properties || [];
-        for ( var i = 0 ; i < props.length ; i++ ) {
-          var p = props[i];
-          if ( ( typeof p === 'string' ? p : p && p.name ) === propName ) return id;
-        }
-        id = cls.model_.extends;
-      }
-      return null;
-    },
-
-    function rawProperty_(raw, propName) {
-      var props = raw.properties || [];
-      for ( var i = 0 ; i < props.length ; i++ ) {
-        var p = props[i];
-        if ( p && typeof p === 'object' && p.name === propName ) return p;
-      }
-      return null;
-    },
-
-    function deprecationOf_(classId, opt_propName) {
-      /**
-       * The `deprecated:` marker of a class (or of one of its own
-       * properties) as written in its source: '' for `deprecated: true`, the
-       * text for `deprecated: 'Use X'`, null when not deprecated or unknown.
-       */
-      var raw = this.rawModelOf_(classId);
-      if ( ! raw ) return null;
-      var holder = opt_propName ? this.rawProperty_(raw, opt_propName) : raw;
-      var dep = holder && holder.deprecated;
-      if ( ! dep ) return null;
-      return typeof dep === 'string' ? dep : '';
-    },
-
-    function rawModelOf_(classId) {
-      /**
-       * The raw (pre-registry) model object for classId, parsed from its
-       * source file, or null. Cached per file on mtime.
-       *
-       * Most files never mention the marker, and parsing a file evaluates
-       * it, so a file whose text lacks the word 'deprecated' is cached as
-       * having no models without being parsed — a class with dozens of
-       * requires otherwise evaluated every one of their files.
-       */
-      var filePath = this.index.getFilePath(classId);
-      if ( ! filePath ) return null;
-      var fs = require('fs');
-      var entry = this.rawModelFiles_[filePath];
-      try {
-        var mtime = fs.statSync(filePath).mtimeMs;
-        if ( ! entry || entry.mtimeMs !== mtime ) {
-          var src = fs.readFileSync(filePath, 'utf8');
-          entry = { mtimeMs: mtime,
-            models: src.indexOf('deprecated') === -1 ? [] : this.cache.parseFileModels(src) };
-          this.rawModelFiles_[filePath] = entry;
-        }
-      } catch ( e ) {
-        require('../logError').logLspError('rawModelOf_ for ' + classId, e);
-        return null;
-      }
-      // A refinement of the class can share its file and answers to the same
-      // id; only the declaration carries the class's own marker.
-      for ( var i = 0 ; i < entry.models.length ; i++ ) {
-        var m = entry.models[i];
-        if ( ! m.refines && this.cache.getClassId(m) === classId ) return m;
-      }
-      return null;
+          relatedInformation: this.relatedAt_(dep.owner, entry.key, 7 /* SymbolKind.Property */,
+            dep.owner + '.' + entry.key + ' is declared deprecated here') });
     },
 
     function relatedAt_(classId, memberName, kind, message) {

@@ -1075,3 +1075,46 @@ var ldTypeRich = foam.parse.lsp.handlers.CompletionHandler.create({
 var ldStr = ldTypeRich.items.filter(function(i) { return i.label === 'String'; })[0];
 test(ldStr && ldStr.labelDetails && ldStr.labelDetails.description === 'foam.lang',
   'CompletionHandler, capability: String type shows package foam.lang');
+
+// === Deprecated tag on property completion items (FOAM-LSP #5) ===
+// A property declared `deprecated:` (StepWizardConfig.wizardView carries
+// `deprecated: true`) is offered with CompletionItemTag.Deprecated (1), so
+// the editor strikes it through before anyone picks it. The tag goes on the
+// wire only for a client that listed 1 in completionItem.tagSupport.valueSet.
+section('Completion — Deprecated tag, gated on completionItem.tagSupport');
+(function() {
+  var CI = foam.parse.lsp.CompletionItem;
+  var raw = [ { label: 'a', kind: 10, tags: [ 1 ] }, { label: 'b', kind: 10 } ];
+  test(! ( 'tags' in CI.toLSPItems(raw, null)[0] ), 'toLSPItems: no tagSupport, tags dropped');
+  test(JSON.stringify(CI.toLSPItems(raw, { tagSupport: { valueSet: [ 1 ] } })[0].tags) === '[1]',
+    'toLSPItems: tagSupport [1] keeps the Deprecated tag');
+  test(! ( 'tags' in CI.toLSPItems(raw, { tagSupport: { valueSet: [] } })[0] ),
+    'toLSPItems: tags filtered to the declared valueSet, an empty result is dropped');
+  test(raw[0].tags.length === 1, 'toLSPItems: the handler\'s own item is not mutated');
+  test(JSON.stringify(CI.create({ label: 'x', tags: [ 1 ] }).toLSP().tags) === '[1]' &&
+       ! ( 'tags' in CI.create({ label: 'y' }).toLSP() ),
+    'CompletionItem.toLSP: tags only when set');
+
+  var src = "foam.CLASS({\n  package: 'test',\n  name: 'DepComplete',\n" +
+    "  requires: [ 'foam.u2.wizard.StepWizardConfig' ],\n" +
+    "  methods: [ function f() {\n    this.StepWizardConfig.create({ \n  } ]\n})";
+  var pos = { line: 5, character: src.split('\n')[5].length };
+  function itemsWith(support) {
+    return foam.parse.lsp.handlers.MemberCompletionHandler.create({
+      index: index, completionItemSupport: support }).handle(src, pos, 'file:///dc.js').items;
+  }
+  function find(items, label) { return items.filter(function(i) { return i.label === label; })[0]; }
+  var tagged = itemsWith({ tagSupport: { valueSet: [ 1 ] } });
+  test(find(tagged, 'wizardView') && JSON.stringify(find(tagged, 'wizardView').tags) === '[1]',
+    '.create({}) keys: wizardView carries the Deprecated tag');
+  test(find(tagged, 'allowSkipping') && ! find(tagged, 'allowSkipping').tags,
+    '.create({}) keys: a property with no marker carries no tag');
+  var plain = itemsWith(null);
+  test(find(plain, 'wizardView') && ! ( 'tags' in find(plain, 'wizardView') ),
+    '.create({}) keys: no tagSupport, no tag on the wire');
+
+  var thisItems = foam.parse.lsp.handlers.MemberCompletionHandler.create({ index: index })
+    .getClassMemberItems('foam.u2.wizard.StepWizardConfig').items;
+  test(find(thisItems, 'wizardView') && JSON.stringify(find(thisItems, 'wizardView').tags) === '[1]',
+    'typed-variable members: wizardView carries the Deprecated tag');
+})();

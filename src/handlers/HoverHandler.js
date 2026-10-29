@@ -660,6 +660,8 @@ foam.CLASS({
       if ( sigParts.length > 0 ) {
         md += '*' + sigParts.join(' · ') + '*\n';
       }
+      var dep = this.index.getDeprecation(classId);
+      if ( dep ) md += '\n' + this.index.deprecationLine(dep) + '\n';
 
       // 2. Documentation — quoted block.
       if ( m.documentation ) {

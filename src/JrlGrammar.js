@@ -20,6 +20,9 @@ foam.CLASS({
       jrlTripleStr - full spans of FOAM """...""" strings; used to
                      sanitize jrl content before eval, because triple
                      quotes are not valid JavaScript.
+      jrlKey       - an object key: the identifier of "name": or name:,
+                     quotes excluded. JrlHandler places a key diagnostic
+                     (a deprecated property) on it.
     Same harvest pattern as FoamClassGrammar.collectAxiomPositions.`,
 
   properties: [
@@ -68,6 +71,18 @@ foam.CLASS({
       var btStr     = stringLit('`', '`');
       var strings   = P.alt(tripleStr, dqStr, sqStr, btStr);
 
+      // Object keys. The record covers the identifier only; the closing
+      // quote and the colon are matched by a lookahead (not(not(p)) consumes
+      // nothing), so a string or word that turns out not to be a key leaves
+      // no record behind. Tried before `strings`, which takes over when the
+      // lookahead fails: "foam.core.X": or "a b": are not property keys.
+      var wsAny    = P.repeat(P.chars(' \t\r\n'), null, 0);
+      var colon    = P.seq(wsAny, P.literal(':'));
+      var dqKey    = P.seq(P.literal('"'),
+        P.msg(P.seq(ident, P.not(P.not(P.seq(P.literal('"'), colon)))), { kind: 'jrlKey' }),
+        P.literal('"'));
+      var identKey = P.msg(P.seq(ident, P.not(P.not(colon))), { kind: 'jrlKey' });
+
       var lineComment  = P.seq(P.literal('//'), P.repeat(P.notChars('\n\r'), null, 0));
       var blockComment = P.seq(P.literal('/*'), P.until(P.literal('*/')));
 
@@ -82,10 +97,10 @@ foam.CLASS({
         P.msg(P.str(P.seq(wsInline, pcr, wsInline, P.literal('('))),
           { kind: 'jrlEntry' }));
 
-      // Flat scan: strings/comments first (so their innards are opaque),
-      // then entry heads, then a single-char fallthrough.
+      // Flat scan: keys, then strings/comments (so their innards are
+      // opaque), then entry heads, then a single-char fallthrough.
       var START = P.repeat(
-        P.alt(strings, blockComment, lineComment, entryHead, P.notChars('')),
+        P.alt(dqKey, identKey, strings, blockComment, lineComment, entryHead, P.notChars('')),
         null, 0);
 
       return { START: START };
@@ -100,11 +115,12 @@ foam.CLASS({
       // All harvested positions are shifted back by 1 (and lines by 1)
       // so records index into the ORIGINAL text.
       var padded = '\n' + text;
-      var map = { entries: [], classRefs: [], tripleStrings: [] };
+      var map = { entries: [], classRefs: [], tripleStrings: [], keys: [] };
       var DEST = {
         jrlEntry:     'entries',
         jrlClassRef:  'classRefs',
-        jrlTripleStr: 'tripleStrings'
+        jrlTripleStr: 'tripleStrings',
+        jrlKey:       'keys'
       };
 
       var lineStarts = [ 0 ];
@@ -150,6 +166,7 @@ foam.CLASS({
       map.entries.sort(byStart);
       map.classRefs.sort(byStart);
       map.tripleStrings.sort(byStart);
+      map.keys.sort(byStart);
 
       this.jrlCache_ = { text: text, map: map };
       return map;
