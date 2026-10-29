@@ -1063,7 +1063,12 @@ foam.CLASS({
     },
 
     function getClassNameCompletions_(partial) {
-      /** Suggest FOAM class IDs matching partial input. */
+      /**
+       * Suggest FOAM class IDs matching partial input. Every match goes out:
+       * the registry is not in name order, so a cap kept an arbitrary slice.
+       * For "foam" the first 51 ids skipped whole packages such as
+       * foam.core and foam.comics.v2, and the editor sorts only what it got.
+       */
       var allIds = this.index.getAllClassIds();
       var items = [];
       var lower = partial.toLowerCase();
@@ -1075,9 +1080,8 @@ foam.CLASS({
           insertText: allIds[i],
           sortText: allIds[i]
         });
-        if ( items.length > 50 ) break;
       }
-      return { isIncomplete: items.length > 50, items: items };
+      return { isIncomplete: false, items: items };
     },
 
     function handleDiagnostics(text, opt_uri) {
