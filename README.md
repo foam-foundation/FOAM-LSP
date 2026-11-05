@@ -170,6 +170,7 @@ File text ──► FileModelCache.parseFileModels()
 - **Method names**: signature with parameters
 - **Properties inside `.create({})`**: type from target class
 - **Property types**: type info and documentation
+- **Permissioned properties**: a property flagged `readPermissionRequired`, `writePermissionRequired`, `updatePermissionRequired` or `columnPermissionRequired` (set on it or inherited) says which permissions grant access, e.g. `user.ro.created` or `user.rw.created`
 - **Java block getters/setters**: shows return/parameter types inside `javaCode` blocks
 - **Java block type names**: resolves FOAM class names inside Java blocks
 
@@ -205,6 +206,7 @@ File text ──► FileModelCache.parseFileModels()
 ### Semantic Tokens
 - Highlights resolved class references (`this.ShortName`) as type tokens
 - Highlights typed variables (assigned from `.create()`) as class tokens
+- Marks `this.<property>` with a `permissioned` modifier when the property needs a permission to be read, written or listed; VS Code underlines it (`semanticTokens.permissions`, on by default)
 - VS Code renders these with theme-aware colors for better readability
 
 ### Colour Swatches
@@ -231,10 +233,20 @@ Short read-only notes drawn inline in a model file (`inlayHints`, on by default)
 - `×N refinements` after a class's `name:` — N other files refine the class
 - `: String` after a property's name when it has no `class:` of its own — the type it inherits
 - `overrides View` after a property's name when a superclass already declares it
+- `🔒 read, write` after a property's name when it needs a permission whose flag is set elsewhere — on a superclass or an interface — and kept by this re-declaration; the tooltip names the permissions and the class that sets each flag
 
 Types and overrides come from the booted class registry, so a property added
 since the server started gets no hint until the class is reloaded. Journals
 (`.jrl`) get none.
+
+### Permissions
+Who may see a property is set by flags that often sit on a superclass or an interface, out of sight. Four surfaces show them:
+- Hover on a property names the permissions that grant each access, and the class that sets the flag
+- `this.<property>` carries the `permissioned` semantic-token modifier (see Semantic Tokens)
+- An inlay hint marks a re-declared property whose flag is set elsewhere (see Inlay Hints)
+- The MCP tool `foam_permissions` (`{ symbol }`, a class or `Class.member`) lists every check the class drives, with the exact names to grant: flagged properties (read / write / update / column, each with the class that sets the flag), sections marked `permissionRequired` (`<class>.section.<name>`), and actions with `availablePermissions` / `enabledPermissions` / `confirmationRequiredPermissions`
+
+Names follow the runtime checks: the concrete class's short name and the member name, lowercased. `User.created` needs `user.ro.created` or `user.rw.created` to be read; on a subclass `Admin` it needs `admin.ro.created`.
 
 ### New Class
 - `foam.scaffold.newClass` builds a new FOAM class file plus its `pom.js` `files:` entry as a single WorkspaceEdit — one undo step, nothing written server-side

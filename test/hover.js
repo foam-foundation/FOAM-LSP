@@ -423,6 +423,54 @@ section('Hover — deprecated class and property');
 })();
 
 
+// === Permission flags in hover (foam3 #5260) ===
+// readPermissionRequired and its siblings decide who may see a property, but
+// the flag is often set on a superclass or interface, out of sight. Hover
+// names the permissions the runtime checks: the CONCRETE class's short name
+// plus the property name, lowercased (PermissionedPropertyDAO, Element2).
+section('Hover — permission flags (foam3 #5260)');
+(function() {
+  var created = index.getPermissions('foam.core.auth.User', 'created');
+  test(created && created.length === 1 && created[0].access === 'read' &&
+    created[0].permissions.join() === 'user.ro.created,user.rw.created' &&
+    created[0].from === 'foam.core.auth.User',
+    'User.created needs user.ro.created or user.rw.created, set on User: ' + JSON.stringify(created));
+
+  test(index.getPermissions('foam.core.auth.User', 'firstName') === null,
+    'a property with no flag needs no permission');
+
+  var agent = index.getPermissions('foam.core.notification.Notification', 'createdByAgent');
+  // Notification sets read and write itself; the column flag comes from
+  // CreatedByAware.
+  test(agent && agent.map(function(p) { return p.access; }).join() === 'read,write,column' &&
+    agent[1].permissions.join() === 'notification.rw.createdbyagent' &&
+    agent[0].from === 'foam.core.notification.Notification' && agent[2].from === 'foam.core.auth.CreatedByAware',
+    'every flag listed, names lowercased, each with its own source: ' + JSON.stringify(agent));
+
+  // Notification re-declares createdBy without the flag; CreatedByAware,
+  // the interface it implements, sets columnPermissionRequired on it.
+  var createdBy = index.getPermissions('foam.core.notification.Notification', 'createdBy');
+  test(createdBy && createdBy.length === 1 && createdBy[0].access === 'column' &&
+    createdBy[0].permissions.join() === 'notification.column.createdby' &&
+    createdBy[0].from === 'foam.core.auth.CreatedByAware',
+    'an inherited flag names the class that sets it: ' + JSON.stringify(createdBy));
+
+  var md = index.getPropertyDoc('foam.core.auth.User', 'created') || '';
+  test(md.indexOf('**Needs permission.** read: `user.ro.created` or `user.rw.created` (set on `foam.core.auth.User`)') !== -1,
+    'property hover carries the permission line: ' + JSON.stringify(md.substring(0, 160)));
+  var plain = index.getPropertyDoc('foam.core.auth.User', 'firstName') || '';
+  test(plain && plain.indexOf('Needs permission') === -1, 'property hover without a flag says nothing');
+
+  var surface = index.getPermissionSurface('foam.core.auth.User');
+  var del = surface && surface.actions.filter(function(a) { return a.name === 'deleteUser'; })[0];
+  test(del && del.availablePermissions.indexOf('user.action.delete') !== -1,
+    'the class surface lists action permissions: ' + JSON.stringify(del));
+  test(surface && surface.properties.some(function(p) { return p.name === 'created'; }) &&
+    ! surface.properties.some(function(p) { return p.name === 'firstName'; }),
+    'the class surface lists flagged properties only');
+})();
+
+
 // A foam.RELATIONSHIP's targetProperty is a property spec of the target
 // model: its keys hover as property keys, not class-body keys, and code in it
 // reads the target model's properties (#10).
@@ -539,6 +587,22 @@ var byNameHoverDone = h.withServerLane(async function() {
     test(buttonStyleVal.indexOf('Enum<ButtonStyle>') !== -1,
       'byName hover on Action.buttonStyle names its enum via the single-property path, got: ' +
       JSON.stringify(buttonStyleVal.slice(0, 40)));
+
+    // foam_permissions rides foam/byName (foam3 #5260): Class.member keeps
+    // that member's rows, a bare class lists every check it drives.
+    var permRes = await request('foam/byName',
+      { name: 'foam.core.auth.User.created', op: 'permissions' }, 'byName permissions member');
+    var permVal = permRes && permRes.result;
+    test(permVal && permVal.member === 'created' && permVal.properties.length === 1 &&
+      permVal.properties[0].access[0].permissions.join() === 'user.ro.created,user.rw.created' &&
+      permVal.actions.length === 0,
+      'byName permissions on User.created answers that property only: ' + JSON.stringify(permVal).slice(0, 200));
+    var permClsRes = await request('foam/byName',
+      { name: 'foam.core.auth.User', op: 'permissions' }, 'byName permissions class');
+    var permCls = permClsRes && permClsRes.result;
+    test(permCls && permCls.properties.length > 1 &&
+      permCls.actions.some(function(a) { return a.name === 'deleteUser'; }),
+      'byName permissions on the bare class lists every flagged property and action');
 
     // Non-regression: a class with no member still gets the class hover.
     var clsRes = await request('foam/byName',

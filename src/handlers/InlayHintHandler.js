@@ -21,6 +21,11 @@ foam.CLASS({
       after a property's name   "overrides View"  — a superclass already
                                 declares this property; names the class
                                 whose declaration it replaces.
+      after a property's name   "🔒 read, write"  — reading or writing it
+                                needs a permission, and the flag that asks
+                                for it is not written here: a superclass
+                                or interface sets it, and a re-declaration
+                                keeps it (FoamIndex.getPermissions).
 
     Positions come from the grammar's model extents
     (FoamClassGrammar.collectModelExtents), the same harvest the document
@@ -179,7 +184,31 @@ foam.CLASS({
           hints.push({ position: at, label: 'overrides ' + over, paddingLeft: true,
             tooltip: 'Also declared by ' + over + ', a superclass of ' + classId });
         }
+
+        var locked = this.hiddenPermissions_(classId, e.name, own);
+        if ( locked.length ) {
+          hints.push({ position: at, paddingLeft: true,
+            label:   '\uD83D\uDD12 ' + locked.map(function(p) { return p.access; }).join(', '),
+            tooltip: locked.map(function(p) {
+              return p.access + ': ' + p.permissions.join(' or ') +
+                ( p.from ? ' (' + p.flag + ' on ' + p.from + ')' : '' );
+            }).join('\n') });
+        }
       }
+    },
+
+    function hiddenPermissions_(classId, name, own) {
+      /**
+       * The permissions property `name` needs whose flag this declaration
+       * does not write itself. A subclass that re-declares User.created to
+       * change its label still needs 'admin.ro.created' to be read, and
+       * nothing in front of the reader says so. A flag written right here
+       * gets no hint: the reader is looking at it.
+       */
+      var perms = this.index.getPermissions(classId, name) || [];
+      return perms.filter(function(p) {
+        return ! ( own && typeof own === 'object' && own[p.flag] );
+      });
     },
 
     function inheritedType_(cls, name) {
