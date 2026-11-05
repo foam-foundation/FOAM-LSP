@@ -85,6 +85,11 @@
           "default": true,
           "description": "Mark u2 builder calls by intent so start()/end() read as a pair: start/end, add/tag, addClass/enableClass/style/attrs and dynamic each get their own colour. Needs foam.features.semanticTokens. Takes effect after a server restart."
         },
+        "foam.features.semanticTokens.permissions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Underline this.<property> when the property needs a permission to be read, written or shown as a table column (readPermissionRequired, writePermissionRequired, updatePermissionRequired, columnPermissionRequired, set here or inherited). Needs foam.features.semanticTokens. Takes effect after a server restart."
+        },
         "foam.features.signatureHelp": {
           "type": "boolean",
           "default": true,
@@ -170,7 +175,8 @@
       { "id": "u2Pair", "description": "A u2 start() or end() call: opens or closes a child element." },
       { "id": "u2Content", "description": "A u2 add() or tag() call: puts content inside the current element." },
       { "id": "u2Styling", "description": "A u2 addClass(), enableClass(), style() or attrs() call: changes the current element." },
-      { "id": "u2Reactive", "description": "A dynamic() call: re-renders when a slot it reads changes." }
+      { "id": "u2Reactive", "description": "A dynamic() call: re-renders when a slot it reads changes." },
+      { "id": "permissioned", "description": "A property that needs a permission to be read, written or shown as a table column." }
     ],
     "semanticTokenScopes": [
       {
@@ -178,7 +184,8 @@
           "method.u2Pair": [ "keyword.control.u2.foam" ],
           "method.u2Content": [ "support.function.u2.foam" ],
           "method.u2Styling": [ "entity.other.attribute-name.u2.foam" ],
-          "method.u2Reactive": [ "storage.type.u2.foam" ]
+          "method.u2Reactive": [ "storage.type.u2.foam" ],
+          "variable.permissioned": [ "markup.underline.permissioned.foam" ]
         }
       }
     ],

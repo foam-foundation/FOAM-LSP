@@ -15,7 +15,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 |---|---|---|
 | `logError.js` | The one logging idiom for a degraded-but-not-fatal failure — see "A fallback leaves a trace" below | `logLspError(context, err)` |
 | `FileModelCache.js` | Eval-intercept model extraction + caching | `getModels()`, `getModelAt()`, `parseFileModels()`. `sourceLine_` and `sourceOffset_` on each model come from `FileClassifier.significantCalls()`; the offset only breaks ties when `FoamClassGrammar.modelEntryFor` pairs a model with its extent by name |
-| `FoamIndex.js` | Query layer over FOAM registry | `getAllClassIds()`, `getProperties()`, `getFilePath()`, `getClassLine()`, `getSymbolPosition()`, `resolveSymbol()`, `buildFileIndex()`, `getRefinements()`, `getRelationshipProperty()`, `getDeprecation()` (the `deprecated:` marker every surface reads — see "Diagnostic tags and related locations") |
+| `FoamIndex.js` | Query layer over FOAM registry | `getAllClassIds()`, `getProperties()`, `getFilePath()`, `getClassLine()`, `getSymbolPosition()`, `resolveSymbol()`, `buildFileIndex()`, `getRefinements()`, `getRelationshipProperty()`, `getDeprecation()` (the `deprecated:` marker every surface reads — see "Diagnostic tags and related locations"), `getPermissions()` / `isPermissioned()` / `getPermissionSurface()` (permission flags — see "Permission flags") |
 | `FoamClassGrammar.js` | Grammar parser: completion `sug()` plus the single-parse position harvest | Skip-and-match pattern, dynamic `sug()` from registry; `collectAxiomPositions()`, `collectModelExtents()`, `modelEntryFor()`, `collectRelationshipProperties()` — see "Grammar-harvested positions" |
 | `CursorAnalyzer.js` | Shared text/position utilities + regex fallback | `offsetToPosition()`, `offsetMapper()` (many offsets, one text), `resolveClassId()`, `parseRequires()`, `findCreateContext()` |
 | `TypeTracker.js` | Variable type resolution from `.create()` assignments | `getVariableTypes()` |
@@ -34,14 +34,14 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 |---|---|---|
 | `CompletionHandler.js` | `textDocument/completion` | Grammar-based + context fallback for partial values. Items carry `labelDetails` where the data is on hand — the package of a property type (`{ description: 'foam.u2' }`), the type of a column/axiom property (`{ detail: ': String' }`); every list leaves through `CompletionItem.toLSPItems`, which drops `labelDetails` unless the client declared `completionItem.labelDetailsSupport` (`completionItemSupport`, wired from `initialize`), and keeps an item's `tags` only as far as `completionItem.tagSupport.valueSet` lists them. `detail` is unchanged either way. Column-name items (`tableColumns:` and the like) carry no Deprecated tag |
 | `MemberCompletionHandler.js` | (routed from completion) | `this.` members, `.create({})` properties, requires/imports, same `labelDetails` shaping. **Auto-require** (`completion.autoRequires`): `this.<Capital>` also offers registered classes the model does not require yet, inserting the short name with an `additionalTextEdits` entry that adds the id to that model's `requires:` — sorted place and the array's own quote/indent when it exists, a new `requires: [ … ]` after the last package/name/extends/refines/implements entry when it doesn't. Positions come from the grammar's `requiresEntry`/`headEntry` harvest inside the model's significant-call span, minus any record inside a comment (`FileClassifier.commentSpans` — the grammar parses a commented-out `foam.CLASS` like a live one), and no edit is written inside a comment. With two `requires:` keys the edit goes into the last, the one JS keeps. A class already required, or whose short name the model already uses, is not offered; nor is anything when no safe edit exists. The list is `isIncomplete` while the flag is on, so it re-asks as the partial grows. A model that has a `requires:` the grammar harvest never reached (it stops at the first value it cannot parse, e.g. a call in `axioms: [ foam.pattern.Faceted.create() ]`) gets no offer, since writing a second `requires:` key would lose the new require. Java-only classes (`flags: ['java']`) are offered only in a Java-only model. Inserted line breaks copy the ending of the line they are written next to (CRLF-aware, per line, so a mixed file stays consistent locally). Property items (`this.`, a typed variable's members, `.create({})` keys) whose property is declared `deprecated:` carry `tags: [1]` (CompletionItemTag.Deprecated, struck through) via `tagDeprecated_` → `FoamIndex.getDeprecation`; `toLSPItems` drops the tag for a client without `tagSupport` |
-| `HoverHandler.js` | `textDocument/hover` | Class docs, method signatures, property types, create info. A property's type carries its `of:` target — `` `Enum<ButtonStyle>` `` — except the primitive `of:` an array class already implies (`StringArray of: 'String'`). A class or property declared `deprecated:` gets a `**Deprecated.** <marker text>` line (`FoamIndex.deprecationLine`; the property one is in `FoamIndex.getPropertyDoc`, so every property hover path and `foam/byName` carry it) |
+| `HoverHandler.js` | `textDocument/hover` | Class docs, method signatures, property types, create info. A property's type carries its `of:` target — `` `Enum<ButtonStyle>` `` — except the primitive `of:` an array class already implies (`StringArray of: 'String'`). A class or property declared `deprecated:` gets a `**Deprecated.** <marker text>` line (`FoamIndex.deprecationLine`; the property one is in `FoamIndex.getPropertyDoc`, so every property hover path and `foam/byName` carry it). A property that needs a permission gets a `**Needs permission.**` line the same way (`FoamIndex.permissionLine`) |
 | `DefinitionHandler.js` | `textDocument/definition` | File index lookup for class → file path |
 | `DiagnosticsHandler.js` | `textDocument/{publishDiagnostics,diagnostic}` | Push + pull diagnostic models. `tags` / `relatedInformation` only when the client declared them — see "Diagnostic tags and related locations" |
 | `JavaBlockValidator.js` | (called by Diagnostics) | Java import validation, getter/setter validation via model fields |
 | `SymbolHandler.js` | `textDocument/documentSymbol` | Document outline via model objects. `range` is the whole definition (the `foam.CLASS({...})` call, a property's `{...}` or `'name'`, a method's `function ... {}`), `selectionRange` just the name inside it, both from `collectModelExtents`. A member the grammar could not reach keeps the old zero-width point at its name |
-| `InlayHintHandler.js` | `textDocument/inlayHint` | `×N refinements` after a class name (`FoamIndex.getRefinements`, other files only), `: Type` after a property with no `class:` (the registry's resolved axiom; plain `Property` skipped), `overrides Parent` after a property a superclass declares (the parent axiom's `sourceCls_`). Type hints are kind 1 (Type); the other two carry no kind. Only hints inside the requested range; none on `.jrl`. Gated by `inlayHints` |
+| `InlayHintHandler.js` | `textDocument/inlayHint` | `×N refinements` after a class name (`FoamIndex.getRefinements`, other files only), `: Type` after a property with no `class:` (the registry's resolved axiom; plain `Property` skipped), `overrides Parent` after a property a superclass declares (the parent axiom's `sourceCls_`), `🔒 read, write` after a property whose permission flag is set elsewhere and not written on this declaration (`FoamIndex.getPermissions`; tooltip names each permission and the class that sets the flag). Type hints are kind 1 (Type); the other two carry no kind. Only hints inside the requested range; none on `.jrl`. Gated by `inlayHints` |
 | `WorkspaceAnalyzer.js` | `foam/analyzeWorkspace` | Full codebase scan |
-| `SemanticTokenHandler.js` | `textDocument/semanticTokens/full` | Highlights resolved class refs and typed variables. u2 builder calls (`semanticTokens.u2`) are method tokens whose modifier names the intent, so a theme can colour `start()`/`end()` as one pair: `u2Pair` (start/end), `u2Content` (add/tag), `u2Styling` (addClass/enableClass/style/attrs), `u2Reactive` (dynamic). The calls come from `FoamClassGrammar.collectU2Calls`; a plain method token on the same span (`this.start` on an Element subclass) gives way to the u2 one. The modifier list `TOKEN_MODIFIERS` is the legend `server.js` advertises, and VS Code maps each `method.<modifier>` to a TextMate scope for default colours (`semanticTokenScopes` in `editors/vscode/package.json`). A matching call on something that is not an Element (`new Set().add(x)`) is marked too: the grammar sees the call, not the receiver's type |
+| `SemanticTokenHandler.js` | `textDocument/semanticTokens/full` | Highlights resolved class refs and typed variables. u2 builder calls (`semanticTokens.u2`) are method tokens whose modifier names the intent, so a theme can colour `start()`/`end()` as one pair: `u2Pair` (start/end), `u2Content` (add/tag), `u2Styling` (addClass/enableClass/style/attrs), `u2Reactive` (dynamic). The calls come from `FoamClassGrammar.collectU2Calls`; a plain method token on the same span (`this.start` on an Element subclass) gives way to the u2 one. The modifier list `TOKEN_MODIFIERS` is the legend `server.js` advertises, and VS Code maps each `method.<modifier>` to a TextMate scope for default colours (`semanticTokenScopes` in `editors/vscode/package.json`). A matching call on something that is not an Element (`new Set().add(x)`) is marked too: the grammar sees the call, not the receiver's type. A `this.<property>` token whose property needs a permission carries the `permissioned` modifier (`semanticTokens.permissions`; `FoamIndex.isPermissioned`), which VS Code maps to `markup.underline` |
 | `ReferencesHandler.js` | `textDocument/references` | Subclasses, implementors, requires, of-users + JS/Java/string/journal usages |
 | `SignatureHelpHandler.js` | `textDocument/signatureHelp` | Method parameter hints inside `(...)` |
 | `FoldingRangeHandler.js` | `textDocument/foldingRange` | Folds `properties:`/`methods:`/`requires:`/etc. arrays |
@@ -410,6 +410,34 @@ The journal check costs nothing on a journal with no deprecated key: the
 entries named one, lookups are memoized per class + property for the run, and
 journals over `JrlHandler.maxJrlGrammarSize` (1 MB) are skipped.
 
+### Permission flags
+A property opts into permission checks with `readPermissionRequired`,
+`writePermissionRequired`, `updatePermissionRequired` (foam3
+`src/foam/lang/Property.js`) or `columnPermissionRequired` (refined onto
+Property by `src/foam/u2/table/UnstyledTableView.js`). Unlike `deprecated:`
+these are real Property properties, so the registry keeps them, and a
+re-declaration in a subclass keeps the parent's values
+(`Property.createChildProperty_` clones the parent axiom). The axiom is the
+answer; no source file is read.
+
+`FoamIndex.getPermissions(classId, prop)` returns
+`[{ access, flag, permissions, from }]`. The names follow the runtime checks:
+the CONCRETE class's short name and the property name, lowercased
+(`PermissionedPropertyDAO`, `Element2`'s controller-mode slot,
+`TableComponentView`): read is `x.ro.p` or `x.rw.p`, write and update are
+`x.rw.p`, column is `x.column.p`. `from` is the nearest class up the extends
+chain whose own declaration sets the flag, an implemented interface counting
+at its implementor's level (`CreatedByAware` sets `columnPermissionRequired`
+on `createdBy`); a flag set only by a refinement leaves `from` null.
+
+Readers: hover (`getPropertyDoc`), the inlay hint (only flags not written on
+the declaration in view), the `permissioned` token modifier
+(`isPermissioned`, a yes/no per axiom), and `foam/byName` op `permissions`,
+which answers `getPermissionSurface` — properties, `permissionRequired`
+sections (`x.section.s`) and actions' permission lists — for the MCP
+`foam_permissions` tool. `Class.member` resolves properties and actions only
+(`memberKind_`), so a section is listed with its class, never alone.
+
 ### Adding to the grammar
 1. Add rule in `FoamClassGrammar.buildGrammar_()`
 2. Use `P.sug()` for completions, `P.sym()` for rule references
@@ -513,6 +541,7 @@ all (`server.js:613-635`).
 | `hover` | `true` | `hoverProvider` capability |
 | `semanticTokens` | `true` | `semanticTokensProvider` capability |
 | `semanticTokens.u2` | `true` | u2 builder-call modifiers on method tokens (`SemanticTokenHandler.addU2Tokens_`). Off: those calls keep whatever token they had before, a plain method token on `this.` or none |
+| `semanticTokens.permissions` | `true` | `permissioned` modifier on `this.<property>` tokens whose property needs a permission (`SemanticTokenHandler.collectModelTokens_`). Off: those tokens carry no modifier |
 | `signatureHelp` | `true` | `signatureHelpProvider` capability |
 | `folding` | `true` | `foldingRangeProvider` capability |
 | `documentColor` | `true` | `colorProvider` capability (swatches + colour presentations) |

@@ -31,6 +31,7 @@ var DEFAULTS = Object.freeze({
   'hover': true,
   'semanticTokens': true,
   'semanticTokens.u2': true,
+  'semanticTokens.permissions': true,
   'signatureHelp': true,
   'folding': true,
   'documentColor': true,

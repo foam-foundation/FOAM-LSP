@@ -106,7 +106,24 @@ section('MCP — tool schemas');
 
 var tools = mcp.toolSchemas();
 var names = tools.map(function(t) { return t.name; });
-test(tools.length === 14, 'toolSchemas: 14 tools — 7 original + 4 trace + 2 i18n + 1 lint (got ' + tools.length + ')');
+test(tools.length === 15, 'toolSchemas: 15 tools — 7 original + 4 trace + 2 i18n + 1 lint + 1 permissions (got ' + tools.length + ')');
+var permTool = tools.find(function(t) { return t.name === 'foam_permissions'; });
+test(permTool && permTool.inputSchema.required.join() === 'symbol',
+  'toolSchemas: foam_permissions is name-addressed and requires symbol');
+
+test(mcp.shapePermissions({ classId: 'foam.core.auth.User',
+  properties: [ { name: 'created', access: [ { access: 'read', flag: 'readPermissionRequired',
+    permissions: [ 'user.ro.created', 'user.rw.created' ], from: 'foam.core.auth.User' } ] } ],
+  sections: [ { name: 'admin', permission: 'user.section.admin' } ],
+  actions: [ { name: 'deleteUser', availablePermissions: [ 'user.action.delete' ] } ] }) ===
+  'foam.core.auth.User\n' +
+  'property created read: user.ro.created | user.rw.created  (readPermissionRequired on foam.core.auth.User)\n' +
+  'section admin shown: user.section.admin\n' +
+  'action deleteUser available: user.action.delete',
+  'shapePermissions: one line per check, any-of names joined with |');
+test(mcp.shapePermissions({ classId: 'foam.u2.View', member: 'data', properties: [], sections: [], actions: [] }) ===
+  'foam.u2.View.data: no permission checks.',
+  'shapePermissions: nothing to check says so');
 ['foam_implementation','foam_type_definition','foam_type_hierarchy','foam_call_hierarchy'].forEach(function(n) {
   test(names.indexOf(n) !== -1, 'toolSchemas: includes new trace tool ' + n);
 });

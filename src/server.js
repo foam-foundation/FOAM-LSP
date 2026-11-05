@@ -354,6 +354,18 @@ function start() {
           outgoing: callHierarchyHandler.outgoingCalls(chItem)
         };
       }
+      case 'permissions': {
+        // Not an LSP shape: the MCP foam_permissions tool is the only
+        // reader. Class.member keeps only that member's rows; resolveSymbol
+        // knows properties and actions, not sections, so no section row can
+        // match one.
+        var surface = index.getPermissionSurface(classId);
+        if ( ! surface || ! info.memberName ) return surface;
+        var only = function(row) { return row.name === info.memberName; };
+        return { classId: classId, member: info.memberName, sections: [],
+          properties: surface.properties.filter(only),
+          actions:    surface.actions.filter(only) };
+      }
       default:
         return null;
     }
@@ -1122,7 +1134,7 @@ function start() {
       case 'foam/byName':
         // Custom request: name-addressed navigation by class id. params:
         // { name, op } where op ∈ definition|typeDefinition|hover|references|
-        // implementation|typeHierarchy|callHierarchy. Returns the same shapes as the
+        // implementation|typeHierarchy|callHierarchy|permissions. Returns the same shapes as the
         // cursor-driven LSP methods so MCP reuses its shapers. null if the
         // name can't be resolved.
         try {
