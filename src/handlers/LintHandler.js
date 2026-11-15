@@ -19,12 +19,21 @@ foam.CLASS({
     direction (Direction B) is skipped, and without 'pomValidator'
     pom-membership returns no findings.`,
 
-  requires: [ 'foam.parse.lsp.FoamIndex', 'foam.parse.lsp.JrlLoader' ],
+  requires: [
+    'foam.parse.lsp.FoamIndex',
+    'foam.parse.lsp.JrlLoader',
+    'foam.parse.lsp.FileModelCache',
+    'foam.parse.lsp.FileClassifier',
+    'foam.parse.lsp.handlers.JrlHandler',
+    'foam.parse.lsp.handlers.TypingChecker'
+  ],
 
   constants: {
     // Canonical list lives in ../lintChecks.js — shared with the MCP
     // foam_lint schema so a new check registers on both surfaces at once.
     ALL_CHECKS: require('../lintChecks'),
+    // A journal this big is data a server wrote, not a seed someone edits.
+    MAX_JOURNAL_SIZE: 2 * 1024 * 1024,
     DEFAULT_STRATEGY_TARGETS: [ 'foam.core.ruler.RuleAction' ],
     IGNORE_MARKER: 'foam-lint-ignore: strategy-ref',
     // The files each check reads. A finding can sit in a file the change
@@ -69,6 +78,85 @@ foam.CLASS({
   ],
 
   methods: [
+    function projectFiles_(ext, opt_paths) {
+      /**
+       * The files a per-file check reads: the given paths with this
+       * extension (a --diff run), else every such file under the root. The
+       * foam3 a project builds with is not the project's: its files are left
+       * out unless foam3 is the root itself.
+       */
+      var path = require('path'), fs = require('fs'), self = this;
+      var foam3 = globalThis.__foamLSPRoots__ && globalThis.__foamLSPRoots__.foam3;
+      var own = function(f) {
+        return ! foam3 || path.resolve(foam3) === path.resolve(self.root) || f.indexOf(path.resolve(foam3) + path.sep) !== 0;
+      };
+      if ( opt_paths ) {
+        return opt_paths.map(function(p) { return path.resolve(self.root, p); }).filter(function(f) {
+          return f.slice(-ext.length) === ext && own(f) && fs.existsSync(f);
+        });
+      }
+      if ( ext === '.jrl' ) return ( this.index || this.FoamIndex.create() ).findWorkspaceJrlFiles_(this.root).filter(own);
+      var out = [];
+      var walk = function(d) {
+        var es;
+        try { es = fs.readdirSync(d, { withFileTypes: true }); }
+        catch (e) { require('../logError').logLspError('lint: read dir ' + d, e); return; }
+        es.forEach(function(x) {
+          var f = path.join(d, x.name);
+          if ( x.isDirectory() ) { if ( x.name[0] !== '.' && x.name !== 'node_modules' && x.name !== 'build' && own(f) ) walk(f); }
+          else if ( x.name.slice(-ext.length) === ext ) out.push(f);
+        });
+      };
+      walk(this.root);
+      return out;
+    },
+
+    function checkTyping_(opt_paths) {
+      /** TypingChecker's rules over the project's model files, as warnings. */
+      var fs = require('fs');
+      var self = this, findings = [];
+      var cache      = this.FileModelCache.create();
+      var classifier = this.FileClassifier.create();
+      var checker    = this.TypingChecker.create({ index: this.index, grammar: this.index && this.index.getGrammar() });
+      this.projectFiles_('.js', opt_paths).forEach(function(file) {
+        var text;
+        try { text = fs.readFileSync(file, 'utf8'); }
+        catch (e) { require('../logError').logLspError('lint: read ' + file, e); return; }
+        if ( classifier.classify('file://' + file, text) !== 'class' ) return;
+        cache.parseFileModels(text).forEach(function(m) {
+          checker.check(m, text).forEach(function(f) {
+            var r = checker.RULES[f.code];
+            findings.push(self.finding_('typing', 'warn', file, text.slice(0, f.start).split('\n').length,
+              r.message.replace('%s', f.name), f.fix ? f.fix.title.replace(/ \(from its value\)$/, '') : r.fix));
+          });
+        });
+      });
+      return findings;
+    },
+
+    function checkJournalRows_(opt_paths) {
+      /**
+       * JrlHandler's journal diagnostics (the jrl-* codes), as findings: an
+       * error where the row is lost, a warning otherwise.
+       */
+      var fs = require('fs');
+      var self = this, findings = [];
+      var jrl = this.JrlHandler.create({ index: this.index || this.FoamIndex.create() });
+      jrl.buildJournalClassMap();
+      this.projectFiles_('.jrl', opt_paths).forEach(function(file) {
+        var text;
+        try { text = fs.readFileSync(file, 'utf8'); }
+        catch (e) { require('../logError').logLspError('lint: read ' + file, e); return; }
+        if ( text.length > self.MAX_JOURNAL_SIZE ) return;
+        jrl.handleDiagnostics(text, 'file://' + file).forEach(function(d) {
+          if ( ! /^jrl-/.test(d.code || '') ) return;
+          findings.push(self.finding_('journal-rows', d.severity === 1 ? 'error' : 'warn', file,
+            d.range.start.line + 1, d.message));
+        });
+      });
+      return findings;
+    },
+
     function findJrlFiles_(basenames) {
       /** The workspace's journals with any of these exact basenames:
           { basename: [absolute paths] }, every name present. The walk is
@@ -308,7 +396,7 @@ foam.CLASS({
 
     async function lint(params) {
       params = params || {};
-      var checks = ( params.checks && params.checks.length ) ? params.checks : this.ALL_CHECKS;
+      var checks = ( params.checks && params.checks.length ) ? params.checks : this.ALL_CHECKS.DEFAULT;
       var allChecks = this.ALL_CHECKS;
       var unknown = checks.filter(function(c) { return allChecks.indexOf(c) === -1; });
       if ( unknown.length ) {
@@ -334,6 +422,17 @@ foam.CLASS({
       if ( checks.indexOf('strategy-ref') !== -1 ) {
         await this.yield_();
         findings = findings.concat(this.checkStrategyRefs_(params.strategyTargets, files));
+      }
+
+      // Per-file checks: a 'paths' run reads only those files.
+      var only = params.scope === 'paths' && Array.isArray(params.paths) ? params.paths : null;
+      if ( checks.indexOf('typing') !== -1 ) {
+        await this.yield_();
+        findings = findings.concat(this.checkTyping_(only));
+      }
+      if ( checks.indexOf('journal-rows') !== -1 ) {
+        await this.yield_();
+        findings = findings.concat(this.checkJournalRows_(only));
       }
 
       if ( params.scope === 'paths' && Array.isArray(params.paths) ) {

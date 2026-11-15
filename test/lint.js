@@ -233,10 +233,12 @@ module.exports.done = (async function() {
 
   var all = await full.lint({});
   test(all && Array.isArray(all.findings), 'lint({}) returns { findings: [] }');
-  test(full.ALL_CHECKS.every(function(c) { return all.findings.some(function(f) { return f.check === c; }); }),
-    'lint({}) runs every check');
-  test(JSON.stringify(full.ALL_CHECKS) === JSON.stringify([ 'pom-membership', 'rule-group', 'strategy-ref' ]),
-    'ALL_CHECKS is the three registration checks');
+  test(full.ALL_CHECKS.DEFAULT.every(function(c) { return all.findings.some(function(f) { return f.check === c; }); }),
+    'lint({}) runs every default check');
+  test(JSON.stringify(full.ALL_CHECKS.DEFAULT) === JSON.stringify([ 'pom-membership', 'rule-group', 'strategy-ref' ]),
+    'the default checks are the three registration checks');
+  test(! all.findings.some(function(f) { return full.ALL_CHECKS.OPT_IN.indexOf(f.check) !== -1; }),
+    'lint({}) does not run the opt-in checks (typing, journal-rows)');
 
   var only = await full.lint({ checks: [ 'rule-group' ] });
   test(only.findings.length > 0 && only.findings.every(function(f) { return f.check === 'rule-group'; }),
@@ -312,4 +314,40 @@ module.exports.done = (async function() {
   setImmediate(function() { interleaved++; });
   await pending;
   test(interleaved === 1, 'lint() yields to the event loop: a queued callback ran before lint resolved');
+
+  section('LintHandler — typing and journal-rows (opt-in)');
+
+  var OPT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'foam-lint-optin-')));
+  fs.mkdirSync(path.join(OPT, 'src'));
+  fs.writeFileSync(path.join(OPT, 'src', 'Thing.js'), [
+    "foam.CLASS({",
+    "  package: 'lint.optin',",
+    "  name: 'Thing',",
+    "  properties: [ { name: 'count', value: 3 }, { class: 'String', name: 'label' } ],",
+    "  methods: [ function go(a) { return a; } ]",
+    "});"
+  ].join('\n'));
+  fs.writeFileSync(path.join(OPT, 'src', 'Plain.js'), "console.log('not a model'); process.exit(0);\n");
+  foam.CLASS({ package: 'lint.optin', name: 'Row', properties: [ { class: 'Int', name: 'id' }, { class: 'String', name: 'text' } ] });
+  fs.writeFileSync(path.join(OPT, 'rows.jrl'),
+    'p({"class":"lint.optin.Row","id":1,\n  "text":"split"})\np({"class":"lint.optin.Row","id":2,"text":"ok"})\n');
+  var opt = foam.parse.lsp.handlers.LintHandler.create({ root: OPT, index: h.index });
+
+  var typing = (await opt.lint({ checks: [ 'typing' ] })).findings;
+  test(typing.some(function(f) { return f.check === 'typing' && /"count"/.test(f.message) && f.line === 4 && f.severity === 'warn'; }),
+    'typing: a property with no class, at its line, as a warning');
+  test(typing.some(function(f) { return /"count"/.test(f.message) && /class: 'Int'/.test(f.fix); }),
+    "typing: the fix names the class its value says");
+  test(typing.some(function(f) { return /"go"/.test(f.message); }), 'typing: a method with an untyped argument');
+  test(! typing.some(function(f) { return /"label"/.test(f.message); }), 'typing: a typed property is not reported');
+  test(! typing.some(function(f) { return /Plain\.js$/.test(f.path); }), 'typing: a plain script is not a model file');
+
+  var rows = (await opt.lint({ checks: [ 'journal-rows' ] })).findings;
+  test(rows.length === 1 && rows[0].check === 'journal-rows' && rows[0].line === 1 && rows[0].severity === 'error',
+    'journal-rows: the split row, once, at its first line, as an error (got ' + JSON.stringify(rows) + ')');
+
+  var diffOnly = (await opt.lint({ checks: [ 'typing', 'journal-rows' ], scope: 'paths', paths: [ 'rows.jrl' ] })).findings;
+  test(diffOnly.length === 1 && diffOnly[0].check === 'journal-rows', 'a paths run reads only the given files');
+
+  fs.rmSync(OPT, { recursive: true, force: true });
 })();

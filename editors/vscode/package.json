@@ -153,9 +153,9 @@
         },
         "foam.lint.checks": {
           "type": "array",
-          "items": { "type": "string", "enum": ["pom-membership", "rule-group", "strategy-ref"] },
+          "items": { "type": "string", "enum": ["pom-membership", "rule-group", "strategy-ref", "typing", "journal-rows"] },
           "default": ["rule-group", "strategy-ref"],
-          "description": "Which lint checks to run. 'pom-membership' is off by default: on a mature workspace it reports hundreds of pre-existing findings. Enable it for a debt triage pass."
+          "description": "Which lint checks to run. 'pom-membership' is off by default: on a mature workspace it reports hundreds of pre-existing findings. Enable it for a debt triage pass. 'typing' (a property with no class, an untyped argument or import) and 'journal-rows' (journal rows FOAM's reader cannot use, unknown classes and keys) run only when listed here."
         },
         "foam.lint.scope": {
           "type": "string",

@@ -369,6 +369,8 @@ cross-file checks the per-file diagnostics above can't see (`LintHandler.js`).
 |---|---|---|
 | `pom-membership` | ERROR | `foam.CLASS`/`ENUM`/`INTERFACE` file in no `pom.js` (never compiles into a build), or a `pom.js` entry pointing at a missing file |
 | `rule-group` | ERROR (WARN if the group is defined only in a *different* deployment dir) | `rules.jrl` entry's `ruleGroup` isn't defined in a reachable `ruleGroups.jrl` — the rule never runs, and the server only logs `RuleGroup not found` at startup. A rule with no `ruleGroup` takes `default` and is not flagged |
+| `typing` (only when named) | WARN | A property with no class, a method argument with no type, an import with no type, a DAO import with no `of` (`TypingChecker`, the same rules as the `diagnostics.typing` warnings). The fix names a class when the property's value says it |
+| `journal-rows` (only when named) | ERROR where the row is lost, WARN otherwise | The journal diagnostics (`JrlHandler`): a row FOAM's reader cannot use (split over lines, not a row, does not parse, text after its `}`, rows with no id), an unknown class, an unknown key. Journals over 2 MB are skipped |
 | `strategy-ref` | ERROR for a jrl entry pointing at a class in no pom at all; WARN for an entry pointing at a class that is registered but flag-gated (e.g. `js&test` — not loaded under current flags); WARN for a strategy implementor with no `StrategyReference` entry | ERROR case is a stale/typo'd entry; flag-gated WARN is usually expected for test-only strategies; no-entry WARN makes the class invisible in the Rule-creation UI (often intentional for jrl-only actions) |
 
 ### `foam/lint` request
