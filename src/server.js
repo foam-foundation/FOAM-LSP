@@ -20,6 +20,9 @@ function start() {
   // it exists so a client that skips or reorders it fails OPEN (every feature
   // on) instead of dereferencing null.
   var FeatureConfig = require('./FeatureConfig');
+  // EXPERIMENT: FTypechecks types file, written from this server's live FOAM.
+  var FTypechecks = require('./FTypechecks');
+  var ftc = null;
   var featureConfig = FeatureConfig.load({});
 
   var index = globalThis.__foamLSPIndex__ || foam.parse.lsp.FoamIndex.create();
@@ -441,6 +444,9 @@ function start() {
 
       // Re-register the classes via real foam.CLASS. Wrap each model block
       // in a try/catch so one bad block doesn't skip the rest.
+      // foam.CLASS records foam.sourceFile as the class's source file.
+      var prevSourceFile = foam.sourceFile;
+      foam.sourceFile = uriToPath_(uri);
       for ( var i = 0 ; i < models.length ; i++ ) {
         var m = models[i];
         try {
@@ -453,6 +459,7 @@ function start() {
             (m.package ? m.package + '.' : '') + m.name + ': ' + e.message);
         }
       }
+      foam.sourceFile = prevSourceFile;
 
       // Clear FoamIndex caches for each class defined in this file and
       // collect them for the targeted re-analyze pass below.
@@ -462,6 +469,13 @@ function start() {
         changedClassIds.push(classId);
         if ( typeof index.invalidate === 'function' ) index.invalidate(classId);
       }
+    }
+
+    // EXPERIMENT: rewrite the FTypechecks types file first, so its hook,
+    // which is waiting for it, gets it before the diagnostics work below.
+    if ( ftc && savedKind === 'class' ) {
+      var savedPath = uriToPath_(uri);
+      if ( ftc.inSources(savedPath) ) ftc.write([savedPath]);
     }
 
     // Compute the dependency closure — files whose diagnostics could be
@@ -515,6 +529,19 @@ function start() {
 
   function uriToPath_(uri) {
     return require('./uri').uriToPath(uri);
+  }
+
+  // EXPERIMENT: a FOAM file changed on disk (Claude Code's Edit tool, git, ...).
+  // Take the disk text as the document's text and re-register it, as a save would.
+  function reindexFromDisk_(file) {
+    var text;
+    try { text = fs_.readFileSync(file, 'utf8'); } catch ( e ) { return; }
+    var uri = 'file://' + file;
+    var doc = documents[uri];
+    if ( doc && doc.text === text && ftc.isCurrent(file) ) return;
+    documents[uri] = { text: text, version: doc ? doc.version + 1 : 0 };
+    reindexFile(uri);
+    if ( ! doc ) delete documents[uri];
   }
 
   var affectedReanalyzeTimer_ = null;
@@ -688,6 +715,12 @@ function start() {
           initOptions: params && params.initializationOptions && params.initializationOptions.foam
         });
         featureConfig.warnings.forEach(function(w) { console.error('[LSP] config: ' + w); });
+        // EXPERIMENT: FTypechecks. Off unless a foam-check.config.json is found.
+        ftc = FTypechecks.create({ root: wsRoot, log: function(m) { console.error(m); } });
+        if ( ftc ) {
+          ftc.watch(reindexFromDisk_);
+          setTimeout(function() { ftc.write(null); }, 0);   // after initialize is answered
+        }
         diagnosticsHandler.featureConfig = featureConfig;
         // Diagnostic tags (faded unused code, struck-through deprecated
         // references) and relatedInformation (a second location) are
