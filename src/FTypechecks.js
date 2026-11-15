@@ -83,7 +83,10 @@ function create(opts) {
     var out = path.join(work, 'app.d.ts.' + process.pid + '.tmp');
     var rep = path.join(work, 'report.json.' + process.pid + '.tmp');
     try {
-      var r = gen.generate({ out: out, report: rep, style: g.style, level: g.level });
+      var r = gen.generate({
+        out: out, report: rep, style: g.style, level: g.level, app: g.app,
+        journals: g.journals && gen.readList ? gen.readList(g.journals) : []
+      });
       fs.renameSync(out, path.join(work, 'app.d.ts'));
       fs.renameSync(rep, path.join(work, 'report.json'));
     } catch ( e ) {
