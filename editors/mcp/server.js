@@ -401,6 +401,7 @@ class FoamLSPClient {
     // resets state so the next tool call boots a fresh one.
     const idleMs = Number(process.env.FOAM_LSP_IDLE_MS) || 30 * 60 * 1000;
     setInterval(function() {
+      if ( this.keepWarm ) return;          // FTypechecks waits on it: see keepWarm
       if ( this.child && this.isReady && this.pending.size === 0 &&
            Date.now() - this.lastUsed > idleMs ) {
         log('LSP idle for ' + Math.round(idleMs / 60000) + 'min — stopping (next call reboots it)');
@@ -479,7 +480,13 @@ class FoamLSPClient {
         p.reject(new Error('LSP exited (code=' + code + ', signal=' + signal + ')'));
       }
       this.pending.clear();
+      const wasReady = this._wasReady;
+      this._wasReady = false;
       this._resetReady();
+      // EXPERIMENT (FTypechecks): keep an LSP running, so the check after an edit
+      // finds the types file written. A branch switch (HEAD change) restarts it at
+      // once. Not after a failed boot: that would loop.
+      if ( this.keepWarm && wasReady ) setTimeout(function() { if ( ! this.child ) this.start(); }.bind(this), 2000);
     }.bind(this));
 
     // Kick off initialize.
@@ -498,6 +505,7 @@ class FoamLSPClient {
       }]
     }).then(function(initResult) {
       log('LSP initialized');
+      this._wasReady = true;
       this._notify('initialized', {});
       this.isReady = true;
       this._resolveReady(initResult);
@@ -947,11 +955,20 @@ function toolContent(text) {
 }
 
 function main() {
-  const projectRoot = process.env.FOAM_PROJECT_ROOT || process.cwd();
+  // Claude Code sets CLAUDE_PROJECT_DIR in every MCP server it starts: the session's
+  // project root (a worktree's own root in a worktree), not the working directory.
+  const projectRoot = process.env.FOAM_PROJECT_ROOT || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   log('project root:', projectRoot);
 
   // No eager boot — whenReady() spawns the LSP on the first foam tool call.
   const lsp = new FoamLSPClient(projectRoot);
+  // EXPERIMENT (FTypechecks): a project with foam-check.config.json wants the types
+  // file written after every edit, so the LSP starts now and stays running.
+  if ( process.env.FTYPECHECKS_CONFIG || fs.existsSync(path.join(projectRoot, 'foam-check.config.json')) ) {
+    lsp.keepWarm = true;
+    log('foam-check.config.json found: starting the LSP now and keeping it running (FTypechecks)');
+    lsp.start();
+  }
 
   const tools = toolSchemas();
 

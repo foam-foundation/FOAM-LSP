@@ -50,6 +50,24 @@ function create(opts) {
   };
 
   var seen = {};          // file -> mtimeMs the last types file included
+  // FOAM loaded every source file at boot, so a file unchanged since this process
+  // started is already in the first types file. (One changed after the start may
+  // have been loaded before or after the change: left out, the watcher sends it.)
+  var bootTime = Date.now() - process.uptime() * 1000;
+  function seedSeen() {
+    var walk = function(d) {
+      var es; try { es = fs.readdirSync(d, { withFileTypes: true }); }
+      catch ( e ) { log('[FTypechecks] cannot read ' + d + ': ' + e.message); return; }
+      es.forEach(function(x) {
+        var f = path.join(d, x.name);
+        if ( x.isDirectory() ) return walk(f);
+        if ( ! /\.js$/.test(x.name) ) return;
+        try { var m = fs.statSync(f).mtimeMs; if ( m < bootTime ) seen[f] = m; }
+        catch ( e ) { log('[FTypechecks] cannot read ' + f + ': ' + e.message); }
+      });
+    };
+    dirs.forEach(function(d) { if ( fs.existsSync(d) ) walk(d); });
+  }
   var genPath = null, gen = null;
 
   function loadGenerator() {
@@ -80,6 +98,7 @@ function create(opts) {
     var g = loadGenerator();
     if ( ! g ) return false;
     var t0 = Date.now();
+    if ( ! changed && ! Object.keys(seen).length ) seedSeen();     // the first types file
     var out = path.join(work, 'app.d.ts.' + process.pid + '.tmp');
     var rep = path.join(work, 'report.json.' + process.pid + '.tmp');
     try {
