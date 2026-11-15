@@ -450,6 +450,10 @@ var dTrail = jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1}, "acco
 test(codes(dTrail).indexOf('jrl-row-trailing') !== -1, 'row shape: keys after the closing } are flagged (FOAM drops them)');
 test(dTrail.some(function(d) { return d.code === 'jrl-row-trailing' && d.message.indexOf('"accountNo":"x"') !== -1; }),
   'row shape: the message shows the dropped text');
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1}) // a (note)', '')).length === 0,
+  'row shape: a comment that ends in ) after the row is fine');
+test(dTrail.some(function(d) { return d.code === 'jrl-row-trailing' && /"accountNo":"x" /.test(d.message); }),
+  'row shape: the dropped text is shown without the closing )');
 test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1}) // checked', '')).length === 0,
   'row shape: a // comment after the row is fine');
 test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1,"accountNo":`a}\'b`})', '')).length === 0,

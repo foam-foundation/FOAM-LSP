@@ -33,6 +33,22 @@ foam.CLASS({
     }
   ],
 
+  constants: {
+    // What a file's top-level code gets in place of the real thing while it
+    // is read for its models (parseFileModels): nothing it does can stop,
+    // change or outlive the server.
+    SCRIPT_STANDINS: {
+      process: {
+        argv: [], env: {}, platform: process.platform, version: process.version, versions: process.versions,
+        exit: function() {}, on: function() {}, once: function() {}, cwd: function() { return process.cwd(); },
+        nextTick: function() {}, stdout: { write: function() {} }, stderr: { write: function() {} }
+      },
+      require: function(name) { throw new Error('require(' + name + ') is not run while a file is read for its models'); },
+      module: { exports: {} },
+      setTimeout: function() {}, setInterval: function() {}, setImmediate: function() {}
+    }
+  },
+
   methods: [
     function getModels(uri, text) {
       /** Returns cached model objects for a file, or parses fresh. */
@@ -299,7 +315,12 @@ foam.CLASS({
           return target[prop];
         }
       });
-      var context = { foam: foamProxy };
+      // The file's top-level code runs here, in the server's process. A
+      // source folder can hold plain scripts too (a test runner ending in
+      // process.exit(...) stopped the whole server when it was opened), so
+      // what a script reaches for outside FOAM gets a stand-in that does
+      // nothing: the process, require, and timers.
+      var context = Object.assign({ foam: foamProxy }, this.SCRIPT_STANDINS);
 
       try {
         with ( context ) { eval(text); }

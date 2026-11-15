@@ -1234,6 +1234,7 @@ foam.CLASS({
                 range: { start: { line: sl, character: classIdx }, end: { line: sl, character: classIdx + classId.length } },
                 severity: 1,
                 source: 'foam-lsp',
+                code: 'jrl-unknown-class',
                 message: 'Unknown class: ' + classId
               });
               break;
@@ -1337,7 +1338,7 @@ foam.CLASS({
       var row  = this.evalJrlObject_(body.slice(0, end + 1));
       return {
         row:  row && typeof row === 'object' ? row : null,
-        rest: body.slice(end + 1).replace(/^\s*\)\s*;?\s*(\/\/.*)?$/, '').trim()
+        rest: body.slice(end + 1).replace(/\s*\/\/[^"'`]*$/, '').replace(/\)\s*;?\s*$/, '').trim()
       };
     },
 
@@ -1473,6 +1474,7 @@ foam.CLASS({
             range: { start: { line: sl, character: keyStart }, end: { line: sl, character: keyStart + key.length } },
             severity: 2,
             source: 'foam-lsp',
+            code: 'jrl-unknown-key',
             message: 'Unknown property "' + key + '" on ' + classId
           });
           return;

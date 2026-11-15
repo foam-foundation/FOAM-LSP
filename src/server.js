@@ -711,7 +711,10 @@ function start() {
           }
         }
         // EXPERIMENT: FTypechecks. Off unless a foam-check.config.json is found.
-        ftc = FTypechecks.create({ root: wsRoot, log: function(m) { console.error(m); } });
+        ftc = FTypechecks.create({
+          root: wsRoot, log: function(m) { console.error(m); },
+          cache: fileModelCache, typingChecker: diagnosticsHandler.typingChecker, jrlHandler: jrlHandler
+        });
         featureConfig = FeatureConfig.load({
           rootPath:        wsRoot,
           // A project that type-checks its models wants the typing rules.

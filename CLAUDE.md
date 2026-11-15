@@ -14,7 +14,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | File | Purpose | Key Functions |
 |---|---|---|
 | `logError.js` | The one logging idiom for a degraded-but-not-fatal failure — see "A fallback leaves a trace" below | `logLspError(context, err)` |
-| `FileModelCache.js` | Eval-intercept model extraction + caching | `getModels()`, `getModelAt()`, `parseFileModels()`. `sourceLine_` and `sourceOffset_` on each model come from `FileClassifier.significantCalls()`; the offset only breaks ties when `FoamClassGrammar.modelEntryFor` pairs a model with its extent by name |
+| `FileModelCache.js` | Eval-intercept model extraction + caching | `getModels()`, `getModelAt()`, `parseFileModels()`. The file's top-level code runs in this process, so `process`, `require` and timers are stand-ins (`SCRIPT_STANDINS`): a test runner in a source folder ending in `process.exit(...)` used to stop the server when it was read. `sourceLine_` and `sourceOffset_` on each model come from `FileClassifier.significantCalls()`; the offset only breaks ties when `FoamClassGrammar.modelEntryFor` pairs a model with its extent by name |
 | `FoamIndex.js` | Query layer over FOAM registry | `getAllClassIds()`, `getProperties()`, `getFilePath()`, `getClassLine()`, `getSymbolPosition()`, `resolveSymbol()`, `buildFileIndex()`, `getRefinements()`, `getRelationshipProperty()`, `getDeprecation()` (the `deprecated:` marker every surface reads — see "Diagnostic tags and related locations"), `classDeclared()` (registered, in the file index, or a hand-written `.java` under a `src/` folder: what a journal row may name) |
 | `FoamClassGrammar.js` | Grammar parser: completion `sug()` plus the single-parse position harvest | Skip-and-match pattern, dynamic `sug()` from registry; `collectAxiomPositions()`, `collectModelExtents()`, `modelEntryFor()`, `collectRelationshipProperties()` — see "Grammar-harvested positions" |
 | `CursorAnalyzer.js` | Shared text/position utilities + regex fallback | `offsetToPosition()`, `offsetMapper()` (many offsets, one text), `resolveClassId()`, `parseRequires()`, `findCreateContext()` |
@@ -27,6 +27,8 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `lintChecks.js` | foam-lint check names | The one list `LintHandler.ALL_CHECKS` and the MCP `foam_lint` enum both read, so a new check shows up on every surface |
 | `bin/lint-cli.js` | foam-lint without the LSP server | Boots pmake, runs `LintHandler.lint()`; `--diff <ref>`, `--checks`, `--format text\|json`, `--strict`; exit 0 clean or warns only, 1 any error (any finding with `--strict`), 2 boot, check-name or `--diff` ref error. `--diff` paths are cwd-relative (`git diff --relative`), so the project may be a repo subdirectory |
 | `lsp-start.js` | Entry point | Console redirect, buildlib globals, pmake invocation |
+| `FTypechecks.js` | EXPERIMENT: files for the FTypechecks plugin | Off unless the workspace has a `foam-check.config.json`. After a source file changes (an editor save, or `fs.watch` for edits made outside the editor) it writes `.foam-check/app.d.ts` (`TypesFile`), `report.json` (the plugin's format and rule names, built from `TypingChecker` and `JrlHandler`, so each check exists once) and `lsp.json` (which file versions it saw; `generator` echoes the plugin's request so the plugin knows these files answer it). Findings are kept per file while its mtime is unchanged: about 0.6 s per write on a 1144-file app, 6 s for the first. Its style list holds only classes this process loaded, the scope the plugin's starting lists were made with |
+| `TypesFile.js` | A `.d.ts` from the live classes | `generate({ out, level, package })` → `{ classes, lines, asserts, shapes }`. Moved from the plugin's `scripts/gen-types.js` (the plugin keeps a copy for the case with no LSP). Empty catches opt out of the bare-catch count, each a lookup that means "type unknown" |
 | `LSPMaker.js` | Build Maker for pmake | Sets flags, builds file index, starts server |
 
 ### Handlers
@@ -339,7 +341,7 @@ cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 # One category (see test/run.js CATEGORIES for the full list —
 # foamIndex, grammar, utilities, completion, hover, diagnostics, i18n,
 # navigation, java, jrl, lint, vscodeLint, bareCatch, editorFeatures, typeHierarchy, usageIndex,
-# callHierarchy, pomValidation, pomNavigation, mcp, typing):
+# callHierarchy, pomValidation, pomNavigation, mcp, typing, ftypechecks):
 node <FOAM-LSP>/test/run.js i18n
 
 # FOAM-model tests (src/test, opt-in, run alone):

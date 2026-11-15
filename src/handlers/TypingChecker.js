@@ -100,9 +100,12 @@ foam.CLASS({
       }, this);
 
       ( m.imports || [] ).forEach(function(im) {
-        var name = typeof im === 'string' ? im.split(/\s+as\s+/)[0].replace(/\?$/, '') : im && im.name;
+        // 'key? as name': the class's member is the name; the text to find is the key.
+        var parts = typeof im === 'string' ? im.split(/\s+as\s+/) : null;
+        var key   = parts ? parts[0].replace(/\?$/, '') : im && ( im.key || im.name );
+        var name  = parts ? ( parts[1] || key ) : im && im.name;
         if ( ! name ) return;
-        var span = this.importSpan_(text, entry, name) || fallback;
+        var span = this.importSpan_(text, entry, key) || this.importSpan_(text, entry, name) || fallback;
         if ( typeof im === 'string' || ( typeof im.type !== 'string' && typeof im.of !== 'string' ) ) {
           add('typing-import-no-type', name, span);
         } else if ( im.type === 'foam.dao.DAO' && typeof im.of !== 'string' ) {

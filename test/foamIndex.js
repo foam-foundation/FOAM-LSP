@@ -136,6 +136,18 @@ test(refinesModels.length === 2, 'Multi-refines: 2 models');
 test(refinesModels[0].refines === 'foam.core.reflow.TableDAOAgent', 'Refines: first target');
 test(refinesModels[1].refines === 'foam.core.reflow.Flow', 'Refines: second target');
 
+// A plain script in a source folder: its top-level code reaches only stand-ins.
+var realExit = process.exit, exited = false;
+process.exit = function() { exited = true; };
+var scriptModels = cache.parseFileModels(
+  "foam.CLASS({ package: 'test.script', name: 'Runner' });\n" +
+  "foam.CLASS({ package: 'test.script', name: setTimeout(function() {}, 0) === undefined ? 'NoTimer' : 'RealTimer' });\n" +
+  "process.exitCode = 3;\nprocess.exit(1);\nrequire('child_process').execSync('false');");
+process.exit = realExit;
+test(! exited && process.exitCode !== 3, 'parseFileModels: a script calling process.exit does not stop the server');
+test(scriptModels.length === 2 && scriptModels[0].name === 'Runner', 'parseFileModels: the script still gives its model');
+test(scriptModels[1] && scriptModels[1].name === 'NoTimer', 'parseFileModels: a timer the script sets is a stand-in, never run');
+
 // ENUM
 var enumText = 'foam.ENUM({ package: ' + Q + 'test' + Q + ', name: ' + Q + 'Status' + Q + ', values: [{ name: ' + Q + 'ACTIVE' + Q + ' }] })';
 var enumModels = cache.parseFileModels(enumText);
