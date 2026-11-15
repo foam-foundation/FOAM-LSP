@@ -38,6 +38,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `DefinitionHandler.js` | `textDocument/definition` | File index lookup for class → file path |
 | `DiagnosticsHandler.js` | `textDocument/{publishDiagnostics,diagnostic}` | Push + pull diagnostic models. `tags` / `relatedInformation` only when the client declared them — see "Diagnostic tags and related locations" |
 | `JavaBlockValidator.js` | (called by Diagnostics) | Java import validation, getter/setter validation via model fields |
+| `TypingChecker.js` | (called by Diagnostics and CodeAction) | Typing style rules, gated by `diagnostics.typing`: `typing-property-no-class`, `typing-untyped-args`, `typing-import-no-type`, `typing-dao-import-no-of` (WARNING, on the member's name). Reads the model as written (only what the file declares), and asks the live class where FOAM fills a type in: a property with no class that overrides a parent's gets the parent's class; a method override inherits the parent's `args`. For a class this process did not load (a test class) it asks what the model extends and implements. `check(m, text)` returns each finding with its fix, so the warning and the quick fix are one answer; the fix today is `class: 'Int'/'Float'/'String'/'Boolean'/'Array'` from a property's literal `value:` (no fix when the value does not say). The gate is explicit, not `featureOn_`: a bare handler (no config) gets no typing warnings. Over a 1144-file app it agrees with FTypechecks' own report on every finding in a loaded class, minus 4 FOAM-added members the plugin flagged wrongly |
 | `SymbolHandler.js` | `textDocument/documentSymbol` | Document outline via model objects. `range` is the whole definition (the `foam.CLASS({...})` call, a property's `{...}` or `'name'`, a method's `function ... {}`), `selectionRange` just the name inside it, both from `collectModelExtents`. A member the grammar could not reach keeps the old zero-width point at its name |
 | `InlayHintHandler.js` | `textDocument/inlayHint` | `×N refinements` after a class name (`FoamIndex.getRefinements`, other files only), `: Type` after a property with no `class:` (the registry's resolved axiom; plain `Property` skipped), `overrides Parent` after a property a superclass declares (the parent axiom's `sourceCls_`). Type hints are kind 1 (Type); the other two carry no kind. Only hints inside the requested range; none on `.jrl`. Gated by `inlayHints` |
 | `WorkspaceAnalyzer.js` | `foam/analyzeWorkspace` | Full codebase scan |
@@ -338,7 +339,7 @@ cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 # One category (see test/run.js CATEGORIES for the full list —
 # foamIndex, grammar, utilities, completion, hover, diagnostics, i18n,
 # navigation, java, jrl, lint, vscodeLint, bareCatch, editorFeatures, typeHierarchy, usageIndex,
-# callHierarchy, pomValidation, pomNavigation, mcp):
+# callHierarchy, pomValidation, pomNavigation, mcp, typing):
 node <FOAM-LSP>/test/run.js i18n
 
 # FOAM-model tests (src/test, opt-in, run alone):
@@ -490,7 +491,10 @@ its handlers are plain Node consumers, so it stays a bare `require()` with no
 FOAM boot cost) that merges three layers into one config object, lowest to
 highest precedence:
 
-1. **`DEFAULTS`** (`FeatureConfig.js`) — baked-in fallback for every flag.
+1. **`DEFAULTS`** (`FeatureConfig.js`) — baked-in fallback for every flag;
+   then **`projectDefaults`**, defaults `server.js` derives from the project
+   and passes in (a `foam-check.config.json` → `diagnostics.typing: true`).
+   FeatureConfig reads no file for this layer, so Ruling R1 holds.
 2. **`foam-lsp.json`** at the workspace root — optional; a missing file is
    silent, malformed JSON gets one warning and that layer is skipped.
 3. **`initializationOptions.foam`** from the LSP client (VS Code settings,
@@ -529,6 +533,7 @@ all (`server.js:613-635`).
 | `diagnostics.java` | `true` | Java-block validation diagnostics |
 | `diagnostics.i18n` | `true` | Hardcoded-display-string diagnostic |
 | `diagnostics.pom` | `true` | Entry-level pom.js diagnostics (`PomValidator.validateEntries` via `DiagnosticsHandler.pomDiagnostics_`) |
+| `diagnostics.typing` | `false` | Typing style warnings and their quick fixes (`TypingChecker`). A workspace with a `foam-check.config.json` turns it on (`projectDefaults`, below); `foam-lsp.json` or the client can still turn it off |
 | `diagnostics.cssSyntax` | `true` | `CSS syntax:` diagnostics from the `foam.u2.parse.CSSParser` grammar over `css:` (`DiagnosticsHandler.validateCSSSyntax_`); the token, raw-colour and unused-`^class` checks read the same parse and stay on |
 | `hints.i18nMissingLanguage` | `true` | Every unsolicited offer to machine-translate: the missing-translation HINT, code actions C/D, AND the `codeLens.i18n` lens (clicking it translates) |
 | `completion` | `true` | `completionProvider` capability |

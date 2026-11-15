@@ -14,6 +14,8 @@ foam.CLASS({
     { name: 'index' },
     { name: 'cssTokenResolver' },
     { name: 'i18nHandler' },
+    { name: 'cache', documentation: 'FileModelCache; with typingChecker, rebuilds the typing fixes (a diagnostic on the wire carries no fix).' },
+    { name: 'typingChecker' },
     {
       name: 'featureConfig',
       documentation: 'Optional feature-toggle config from src/FeatureConfig (server.js wires it). Null means "every action offered" — an absent config must never remove an action.'
@@ -200,6 +202,21 @@ foam.CLASS({
           });
         }
 
+        // Typing rule → the fix TypingChecker found for this member, if any
+        if ( /^typing-/.test(diag.code) ) {
+          var tf = this.typingFix_(text, uri, diag);
+          if ( tf ) {
+            var at = this.typingChecker.analyzer.offsetToPosition(text, tf.offset);
+            actions.push({
+              title:       tf.title,
+              kind:        'quickfix',
+              isPreferred: true,
+              diagnostics: [diag],
+              edit: { changes: this.makeEdit_(uri, { start: at, end: at }, tf.insert) }
+            });
+          }
+        }
+
         // Wrong Java import package → replace
         var wrongPkgMatch = diag.message.match(/Wrong Java package[^']*'([^']+)'/);
         if ( wrongPkgMatch ) {
@@ -217,6 +234,20 @@ foam.CLASS({
       }
 
       return actions;
+    },
+
+    function typingFix_(text, uri, diag) {
+      /** The fix of the typing finding this diagnostic reports, found again in the current text; or null. */
+      if ( ! this.cache || ! this.typingChecker ) return null;
+      var self = this, models = this.cache.getModels(uri, text);
+      for ( var i = 0 ; i < models.length ; i++ ) {
+        var hit = this.typingChecker.check(models[i], text).filter(function(f) {
+          var p = self.typingChecker.analyzer.offsetToPosition(text, f.start);
+          return f.code === diag.code && f.fix && p.line === diag.range.start.line && p.character === diag.range.start.character;
+        })[0];
+        if ( hit ) return hit.fix;
+      }
+      return null;
     },
 
     function makeEdit_(uri, range, newText) {

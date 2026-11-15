@@ -8,7 +8,8 @@
 // Node consumers, so this stays a plain require() with no FOAM boot cost.
 //
 // Three-layer feature-toggle merge, lowest to highest precedence:
-//   1. DEFAULTS (below)
+//   1. DEFAULTS (below), then opts.projectDefaults: defaults the caller
+//      derives from the project (server.js), read from no file here
 //   2. foam-lsp.json at the workspace root (missing file: silent; malformed
 //      JSON: one warning, falls back to defaults for this layer)
 //   3. initOptions passed by the client at LSP initialize time
@@ -25,6 +26,7 @@ var DEFAULTS = Object.freeze({
   'diagnostics.i18n': true,
   'diagnostics.pom': true,
   'diagnostics.cssSyntax': true,
+  'diagnostics.typing': false,
   'hints.i18nMissingLanguage': true,
   'completion': true,
   'completion.autoRequires': true,
@@ -97,6 +99,11 @@ function load(opts) {
   var features = Object.assign({}, DEFAULTS);
   var i18n = {};
   var warnings = [];
+
+  // Layer 1b: defaults the project implies, worked out by the caller
+  // (server.js: a foam-check.config.json turns diagnostics.typing on).
+  // Below foam-lsp.json and the client, so either can still turn it off.
+  applyFeatures(features, opts.projectDefaults, warnings);
 
   // Layer 2: foam-lsp.json at the workspace root. Read and parse share one
   // try so a missing file (ENOENT) stays silent — the common case, a

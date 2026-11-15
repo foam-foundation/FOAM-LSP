@@ -73,7 +73,7 @@ function start() {
 
   var signatureHelpHandler   = foam.parse.lsp.handlers.SignatureHelpHandler.create({ index: index, cache: fileModelCache });
   var foldingRangeHandler    = foam.parse.lsp.handlers.FoldingRangeHandler.create();
-  var codeActionHandler      = foam.parse.lsp.handlers.CodeActionHandler.create({ index: index, cssTokenResolver: cssTokenResolver, i18nHandler: i18nHandler, featureConfig: featureConfig });
+  var codeActionHandler      = foam.parse.lsp.handlers.CodeActionHandler.create({ index: index, cssTokenResolver: cssTokenResolver, i18nHandler: i18nHandler, featureConfig: featureConfig, cache: fileModelCache, typingChecker: diagnosticsHandler.typingChecker });
   var codeLensHandler        = foam.parse.lsp.handlers.CodeLensHandler.create({ fileClassifier: fileClassifier, index: index, cache: fileModelCache, i18nHandler: i18nHandler, featureConfig: featureConfig });
   var inlayHintHandler       = foam.parse.lsp.handlers.InlayHintHandler.create({ fileClassifier: fileClassifier, index: index, cache: fileModelCache, grammar: grammar });
   var workspaceSymbolHandler = foam.parse.lsp.handlers.WorkspaceSymbolHandler.create({ index: index });
@@ -710,13 +710,15 @@ function start() {
             console.error('[LSP] initialize: unusable rootUri "' + params.rootUri + '": ' + e.message);
           }
         }
-        featureConfig = FeatureConfig.load({
-          rootPath:    wsRoot,
-          initOptions: params && params.initializationOptions && params.initializationOptions.foam
-        });
-        featureConfig.warnings.forEach(function(w) { console.error('[LSP] config: ' + w); });
         // EXPERIMENT: FTypechecks. Off unless a foam-check.config.json is found.
         ftc = FTypechecks.create({ root: wsRoot, log: function(m) { console.error(m); } });
+        featureConfig = FeatureConfig.load({
+          rootPath:        wsRoot,
+          // A project that type-checks its models wants the typing rules.
+          projectDefaults: ftc ? { 'diagnostics.typing': true } : null,
+          initOptions:     params && params.initializationOptions && params.initializationOptions.foam
+        });
+        featureConfig.warnings.forEach(function(w) { console.error('[LSP] config: ' + w); });
         if ( ftc ) {
           ftc.watch(reindexFromDisk_);
           setTimeout(function() { ftc.write(null); }, 0);   // after initialize is answered
