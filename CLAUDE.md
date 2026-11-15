@@ -15,7 +15,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 |---|---|---|
 | `logError.js` | The one logging idiom for a degraded-but-not-fatal failure — see "A fallback leaves a trace" below | `logLspError(context, err)` |
 | `FileModelCache.js` | Eval-intercept model extraction + caching | `getModels()`, `getModelAt()`, `parseFileModels()`. `sourceLine_` and `sourceOffset_` on each model come from `FileClassifier.significantCalls()`; the offset only breaks ties when `FoamClassGrammar.modelEntryFor` pairs a model with its extent by name |
-| `FoamIndex.js` | Query layer over FOAM registry | `getAllClassIds()`, `getProperties()`, `getFilePath()`, `getClassLine()`, `getSymbolPosition()`, `resolveSymbol()`, `buildFileIndex()`, `getRefinements()`, `getRelationshipProperty()`, `getDeprecation()` (the `deprecated:` marker every surface reads — see "Diagnostic tags and related locations") |
+| `FoamIndex.js` | Query layer over FOAM registry | `getAllClassIds()`, `getProperties()`, `getFilePath()`, `getClassLine()`, `getSymbolPosition()`, `resolveSymbol()`, `buildFileIndex()`, `getRefinements()`, `getRelationshipProperty()`, `getDeprecation()` (the `deprecated:` marker every surface reads — see "Diagnostic tags and related locations"), `classDeclared()` (registered, in the file index, or a hand-written `.java` under a `src/` folder: what a journal row may name) |
 | `FoamClassGrammar.js` | Grammar parser: completion `sug()` plus the single-parse position harvest | Skip-and-match pattern, dynamic `sug()` from registry; `collectAxiomPositions()`, `collectModelExtents()`, `modelEntryFor()`, `collectRelationshipProperties()` — see "Grammar-harvested positions" |
 | `CursorAnalyzer.js` | Shared text/position utilities + regex fallback | `offsetToPosition()`, `offsetMapper()` (many offsets, one text), `resolveClassId()`, `parseRequires()`, `findCreateContext()` |
 | `TypeTracker.js` | Variable type resolution from `.create()` assignments | `getVariableTypes()` |
@@ -49,7 +49,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `I18nHandler.js` | (called by Diagnostics/CodeAction/server.js custom methods) | i18n edit building (extract, messageMap), missing-language scan, translate-command execution |
 | `WorkspaceSymbolHandler.js` | `workspace/symbol` | Class + property + method search with ranking, cap 500 |
 | `RenameHandler.js` | `textDocument/{prepareRename,rename}` | Rename a class id + short-name occurrences |
-| `JrlHandler.js` | (custom hover + tokens for `.jrl`) | JRL class-ref resolution, embedded block tokens, cross-reference go-to-definition (daoKey → services.jrl CSpec, Reference values → journal entry, class ids inside serviceScript/client strings). A key naming a property declared `deprecated:` gets a `deprecated-property` HINT (see "Diagnostic tags and related locations"), a `**Deprecated.**` hover line, and `tags: [1]` on its completion item; `completionItemSupport` and `clientDiagnosticCaps` are wired from `initialize` like the other handlers, and the pull lane passes its own caps to `handleDiagnostics(text, uri, caps)` |
+| `JrlHandler.js` | (custom hover + tokens for `.jrl`) | JRL class-ref resolution, embedded block tokens, cross-reference go-to-definition (daoKey → services.jrl CSpec, Reference values → journal entry, class ids inside serviceScript/client strings). A key naming a property declared `deprecated:` gets a `deprecated-property` HINT (see "Diagnostic tags and related locations"), a `**Deprecated.**` hover line, and `tags: [1]` on its completion item; `completionItemSupport` and `clientDiagnosticCaps` are wired from `initialize` like the other handlers, and the pull lane passes its own caps to `handleDiagnostics(text, uri, caps)`. Row-shape diagnostics read rows the way the server will — see "Journal rows as FOAM reads them" |
 | `DocumentHighlightHandler.js` | `textDocument/documentHighlight` | Highlight all occurrences of identifier under cursor |
 | `TypeHierarchyHandler.js` | `textDocument/prepareTypeHierarchy` + `typeHierarchy/{supertypes,subtypes}` | Inheritance tree for any class, interface implementors included |
 | `ImplementationHandler.js` | `textDocument/implementation` | Concrete implementors of a FOAM interface |
@@ -409,6 +409,29 @@ The journal check costs nothing on a journal with no deprecated key: the
 `JrlGrammar` key harvest (which places the HINT) runs only after the evaluated
 entries named one, lookups are memoized per class + property for the run, and
 journals over `JrlHandler.maxJrlGrammarSize` (1 MB) are skipped.
+
+### Journal rows as FOAM reads them
+`JrlHandler.findEntryAtLine_` and `JrlLoader` join a row's lines by brackets,
+which reads more rows as whole than the server does. `foamRows_` cuts the
+journal exactly as `foam.dao.AbstractF3FileJournal.getEntry` does: a line that
+is exactly `p({`, `c({` or `r({` starts a row that ends at a line that is
+exactly `})`; every other line is a row of its own. `parseFoamRow_` then reads
+it as `JSONParser.parseString` does: the first object after `p(`, the rest
+ignored. `addRowShapeDiags_` reports what the server cannot use, one code each
+(`ROW_RULES` holds the message and the fix):
+
+| Code | Severity | What happens on the server |
+|---|---|---|
+| `jrl-row-split` | ERROR | a row over several lines whose first line is not exactly `p({`: each line is read as a row, so it loads half-filled or not at all. Flagged once, on its first line |
+| `jrl-not-a-row` | WARNING | a line that is no row and no comment (a comment starts with `/` in column 0): read as a row, fails |
+| `jrl-row-unparsed` | ERROR | the row's object does not parse: skipped. `"""`, `'` and backtick strings parse, as in FOAM's `StringParser` |
+| `jrl-row-trailing` | ERROR | text after the object's closing `}` (other than `)`, `;`, a `//` comment): dropped with no error, e.g. a key after the `}`, or two rows on one line |
+| `jrl-rows-no-id` | WARNING | two or more rows of one class with no id (asked of FOAM: `cls.create(row).id`, since an id may be computed): a replay keeps only the last |
+
+The unknown-class check accepts any class `FoamIndex.classDeclared` knows: a
+test or Java-only class is valid on the server even though this process never
+loaded it (219 of foam3's journal class names were flagged before). Over
+foam3's 325 journals the row-shape rules find 3 rows, all real.
 
 ### Adding to the grammar
 1. Add rule in `FoamClassGrammar.buildGrammar_()`

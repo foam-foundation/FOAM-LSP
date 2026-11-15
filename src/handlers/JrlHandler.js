@@ -17,6 +17,43 @@ foam.CLASS({
     'foam.parse.lsp.CursorAnalyzer'
   ],
 
+  constants: {
+    // The lines that open a multi-line row in FOAM's reader
+    // (foam.dao.AbstractF3FileJournal.getEntry); `})` alone closes it.
+    ROW_OPENERS: [ 'p({', 'c({', 'r({' ],
+    ROW_START: /^[prcv]\(/,
+
+    // What FOAM's reader does with a row it cannot use, by diagnostic code.
+    // addRowShapeDiags_ finds them; this table says them.
+    ROW_RULES: {
+      'jrl-row-split': {
+        severity: 1,
+        message: 'Row split over lines: FOAM reads each of these lines as a row of its own, so the row loads half-filled or not at all.',
+        fix: 'Put p({ and }) on lines of their own, or write the row on one line.'
+      },
+      'jrl-not-a-row': {
+        severity: 2,
+        message: 'FOAM reads this line as a row and fails on it.',
+        fix: 'Start a comment with // at the very start of the line.'
+      },
+      'jrl-row-unparsed': {
+        severity: 1,
+        message: 'FOAM cannot read this row and skips it.',
+        fix: 'Check the quotes, commas and brackets.'
+      },
+      'jrl-row-trailing': {
+        severity: 1,
+        message: 'FOAM reads this row up to the } that closes its first {, and drops the rest with no error:',
+        fix: 'Move the dropped keys inside the braces.'
+      },
+      'jrl-rows-no-id': {
+        severity: 2,
+        message: 'A replay gives them all the same empty id, so only the last one survives.',
+        fix: 'Give every row its own "id".'
+      }
+    }
+  },
+
   properties: [
     {
       class: 'FObjectProperty',
@@ -1184,8 +1221,10 @@ foam.CLASS({
         var classId = this.resolveClassForJrl(opt_uri, entry);
         if ( ! classId ) continue;
 
-        // Validate class exists
+        // Validate class exists. A class the server has but this process did
+        // not load (a test or Java-only class) is fine; its keys go unchecked.
         var cls = this.index.getClass(classId);
+        if ( ! cls && this.index.classDeclared(classId) ) continue;
         if ( ! cls ) {
           // Find the class string in the entry lines
           for ( var sl = startLine ; sl <= endLine ; sl++ ) {
@@ -1209,6 +1248,8 @@ foam.CLASS({
         // flags `wrongAxiom` against Y, not X.
         this.validateEntryProperties_(entry, cls, classId, lines, startLine, endLine, diags, deprecated);
       }
+
+      this.addRowShapeDiags_(lines, diags, opt_uri);
 
       if ( deprecated.length ) {
         this.addDeprecatedKeyDiags_(text, deprecated, diags,
@@ -1252,6 +1293,125 @@ foam.CLASS({
           }).toLSP(caps));
           break;
         }
+      }
+    },
+
+    function foamRows_(lines) {
+      /**
+       * The journal cut into rows exactly as FOAM's reader cuts it
+       * (foam.dao.AbstractF3FileJournal.getEntry): a line that is exactly one
+       * of ROW_OPENERS starts a row that ends at a line that is exactly `})`;
+       * every other line is a row of its own. findEntryAtLine_ and JrlLoader
+       * join lines by brackets, which reads more rows as whole than FOAM does.
+       * Blank lines and comments are left out, and so are the inner lines of a
+       * block comment (FOAM logs those as malformed and goes on).
+       * Returns [{ text, startLine, endLine }].
+       */
+      var rows = [], inBlock = false;
+      for ( var i = 0 ; i < lines.length ; i++ ) {
+        var start = i, t = lines[i].replace(/\r$/, '');
+        if ( this.ROW_OPENERS.indexOf(t) !== -1 ) {
+          while ( t.slice(t.lastIndexOf('\n') + 1) !== '})' && i + 1 < lines.length ) {
+            t += '\n' + lines[++i].replace(/\r$/, '');
+          }
+        }
+        if ( inBlock ) { if ( t.indexOf('*/') !== -1 ) inBlock = false; continue; }
+        if ( ! t.trim() ) continue;
+        if ( t.charAt(0) === '/' ) { inBlock = t.indexOf('/*') === 0 && t.indexOf('*/') === -1; continue; }
+        rows.push({ text: t, startLine: start, endLine: i });
+      }
+      return rows;
+    },
+
+    function parseFoamRow_(text) {
+      /**
+       * Read a row the way FOAM does: its JSON parser reads the first object
+       * after `p(` and ignores what follows (JSONParser.parseString stops
+       * there). Returns { row, rest }: row is null when the object does not
+       * parse, rest is the text after the object other than the closing `)`
+       * (and a `;` or a // comment after it). """multi-line strings""" read as strings.
+       */
+      var body = text.slice(2).replace(/"""([\s\S]*?)"""/g, function(m, s) { return JSON.stringify(s); });
+      var end  = this.objectEnd_(body);
+      if ( end === -1 ) return { row: null, rest: '' };
+      var row  = this.evalJrlObject_(body.slice(0, end + 1));
+      return {
+        row:  row && typeof row === 'object' ? row : null,
+        rest: body.slice(end + 1).replace(/^\s*\)\s*;?\s*(\/\/.*)?$/, '').trim()
+      };
+    },
+
+    function objectEnd_(text) {
+      /** Offset of the } that closes the { text starts with (after spaces), or -1. Skips strings. */
+      var depth = 0, quote = null;
+      for ( var i = 0 ; i < text.length ; i++ ) {
+        var c = text.charAt(i);
+        if ( quote ) {
+          if ( c === '\\' ) i++;
+          else if ( c === quote ) quote = null;
+        } else if ( c === '"' || c === "'" || c === '`' ) quote = c;     // FOAM's StringParser takes all three
+        else if ( c === '{' || c === '[' ) depth++;
+        else if ( c === '}' || c === ']' ) { if ( --depth === 0 ) return c === '}' ? i : -1; }
+        else if ( depth === 0 && ! /\s/.test(c) ) return -1;
+      }
+      return -1;
+    },
+
+    function addRowShapeDiags_(lines, diags, opt_uri) {
+      /**
+       * Rows FOAM's reader cannot use (see ROW_RULES): a row split over lines,
+       * a line that is no row, a row that does not parse, and two or more rows
+       * of one class with no id. The unknown-class and unknown-key checks above
+       * read rows by brackets; these read them the way the server will.
+       */
+      var self = this;
+      var add = function(code, line, opt_what, opt_detail) {
+        var r = self.ROW_RULES[code];
+        diags.push(self.Diagnostic.create({
+          range: { start: { line: line, character: 0 }, end: { line: line, character: lines[line].replace(/\r$/, '').length } },
+          severity: r.severity,
+          message: ( opt_what ? opt_what + ' ' : '' ) + r.message + ( opt_detail ? ' ' + opt_detail : '' ) + ' ' + r.fix,
+          code: code
+        }).toLSP());
+      };
+      var rows   = this.foamRows_(lines);
+      var noId   = Object.create(null);    // class id -> first lines of its rows with no id
+      for ( var i = 0 ; i < rows.length ; i++ ) {
+        var t = rows[i].text, at = rows[i].startLine;
+        if ( ! this.ROW_START.test(t) ) { add('jrl-not-a-row', at); continue; }
+        var read = this.parseFoamRow_(t), row = read.row;
+        if ( row && read.rest ) add('jrl-row-trailing', at, null, read.rest.slice(0, 60));
+        if ( ! row ) {
+          // A one-line row that does not parse, followed by lines that are no
+          // rows: one row written over several lines. Its other lines are part
+          // of this one mistake, so they are not flagged again.
+          var j = i + 1;
+          while ( j < rows.length && rows[j].startLine === rows[j - 1].endLine + 1 && ! this.ROW_START.test(rows[j].text) ) j++;
+          if ( t.indexOf('\n') === -1 && j > i + 1 ) { add('jrl-row-split', at); i = j - 1; }
+          else add('jrl-row-unparsed', at);
+          continue;
+        }
+        if ( t.charAt(0) === 'r' || 'id' in row ) continue;    // a remove names its row by id only
+        var classId = this.resolveClassForJrl(opt_uri, row);
+        var cls     = classId && this.index.getClass(classId);
+        if ( ! cls || ! this.hasEmptyId_(cls, row) ) continue;
+        ( noId[classId] = noId[classId] || [] ).push(at);
+      }
+      Object.keys(noId).forEach(function(id) {
+        if ( noId[id].length > 1 ) add('jrl-rows-no-id', noId[id][0], noId[id].length + ' rows of ' + id + ' have no id.');
+      });
+    },
+
+    function hasEmptyId_(cls, row) {
+      /** Whether FOAM would give this row an empty id; a class may compute its id from other properties. */
+      try {
+        var args = Object.assign({}, row);
+        delete args['class'];
+        var id = cls.create(args, foam.__context__).id;
+        return id === '' || id === 0 || id == null;
+      } catch (e) {
+        require('../logError').logLspError('id of a ' + cls.id + ' journal row', e);
+        return false;
       }
     },
 
