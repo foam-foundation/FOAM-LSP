@@ -426,10 +426,10 @@ ignored. `addRowShapeDiags_` reports what the server cannot use, one code each
 | Code | Severity | What happens on the server |
 |---|---|---|
 | `jrl-row-split` | ERROR | a row over several lines whose first line is not exactly `p({`: each line is read as a row, so it loads half-filled or not at all. Flagged once, on its first line |
-| `jrl-not-a-row` | WARNING | a line that is no row and no comment (a comment starts with `/` in column 0): read as a row, fails |
-| `jrl-row-unparsed` | ERROR | the row's object does not parse: skipped. `"""`, `'` and backtick strings parse, as in FOAM's `StringParser` |
-| `jrl-row-trailing` | ERROR | text after the object's closing `}` (other than `)`, `;`, a `//` comment): dropped with no error, e.g. a key after the `}`, or two rows on one line |
-| `jrl-rows-no-id` | WARNING | two or more rows of one class with no id (asked of FOAM: `cls.create(row).id`, since an id may be computed): a replay keeps only the last |
+| `jrl-not-a-row` | WARNING | a line that is no row and no comment (a comment starts with `/` in column 0): read as a row, fails. An indented row gets its own fix (remove the spaces) |
+| `jrl-row-unparsed` | ERROR | the row's object does not parse: skipped. Strings read as FOAM's `StringParser` reads them (`jsonStrings_`): `"""`, `"`, `'` and backtick strings are plain text with `\` escapes, so `${...}` in a backtick string is text, not a template. FOAM reads a row without its last character (`F3FileJournal.js:161`), so `p({...}` with no `)` loses its `}`: flagged, with its own fix |
+| `jrl-row-trailing` | ERROR | text after the object's closing `}` (other than `)`, `;`, a `//` comment): dropped with no error, e.g. a key after the `}`, or two rows on one line (its own fix: a line of its own) |
+| `jrl-rows-no-id` | WARNING | two or more rows of one class with no id (read from the class's id axiom, since an id may be computed): a replay merges them into one row (`F3FileJournal.js:195-197`), each key keeping the last row's value |
 
 The unknown-class check accepts any class `FoamIndex.classDeclared` knows: a
 test or Java-only class is valid on the server even though this process never

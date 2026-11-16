@@ -79,3 +79,98 @@ test(lsp.seen && lsp.seen[path.join(src, 'Thing.js')] === fs.statSync(path.join(
 test(ftc && ftc.isCurrent(path.join(src, 'Thing.js')), 'ftypechecks: isCurrent after the write');
 
 fs.rmSync(dir, { recursive: true, force: true });
+
+// PR #37 review: a FOAM file changed on disk while the editor holds unsaved
+// text for it. reindexFromDisk_ re-registers the disk text, and while it runs
+// the document IS the disk text, so the diagnostics it pushes sit on the disk
+// text's lines. Once the editor's text is back, the last push for the file
+// must be the editor's own.
+var laneDone = h.withServerLane(async function() {
+  var origWrite = process.stdout.write;
+  var ws = null;
+  try {
+    var frames = [], inBuf = Buffer.alloc(0);
+    process.stdout.write = function(chunk) {
+      inBuf = Buffer.concat([ inBuf, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8') ]);
+      while ( true ) {
+        var headerEnd = inBuf.indexOf('\r\n\r\n');
+        if ( headerEnd === -1 ) break;
+        var m = /Content-Length:\s*(\d+)/i.exec(inBuf.slice(0, headerEnd).toString('utf8'));
+        if ( ! m ) { inBuf = inBuf.slice(headerEnd + 4); continue; }
+        var len = parseInt(m[1], 10), bodyStart = headerEnd + 4;
+        if ( inBuf.length < bodyStart + len ) break;
+        try { frames.push(JSON.parse(inBuf.slice(bodyStart, bodyStart + len).toString('utf8'))); } catch (e) { /* not JSON: not ours */ }
+        inBuf = inBuf.slice(bodyStart + len);
+      }
+      return true;
+    };
+    var send = function(msg) {
+      var json = JSON.stringify(msg);
+      process.stdin.emit('data', Buffer.from('Content-Length: ' + Buffer.byteLength(json) + '\r\n\r\n' + json, 'utf8'));
+    };
+    var waitFor = function(pred, what) {
+      return new Promise(function(resolve, reject) {
+        var deadline = Date.now() + 20000;
+        (function poll() {
+          for ( var i = 0 ; i < frames.length ; i++ ) if ( pred(frames[i], i) ) return resolve(frames[i]);
+          if ( Date.now() > deadline ) return reject(new Error('timed out waiting for ' + what));
+          setTimeout(poll, 10);
+        })();
+      });
+    };
+
+    section('FTypechecks — a change on disk keeps the editor text\'s diagnostics');
+    ws = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lsp-ftc-lane-')));
+    fs.mkdirSync(path.join(ws, 'src'));
+    fs.writeFileSync(path.join(ws, 'foam-check.config.json'), JSON.stringify({ app: '.', 'package': 'ftc.lane', sources: [ 'src' ] }));
+    var file = path.join(ws, 'src', 'Shifted.js'), uri = 'file://' + file;
+    var editorText = [
+      "foam.CLASS({",
+      "  package: 'ftc.lane',",
+      "  name: 'Shifted',",
+      "  properties: [",
+      "    { name: 'count', value: 3 }",
+      "  ]",
+      "});"
+    ].join('\n');
+    var diskText = '\n\n\n' + editorText;          // the same class, three lines lower
+    fs.writeFileSync(file, editorText);
+
+    process.stdin.removeAllListeners('data');
+    require('../src/server').start();
+    process.stdin.removeAllListeners('end');
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { rootUri: 'file://' + ws, capabilities: {} } });
+    await waitFor(function(f) { return f.id === 1 && f.result; }, 'the initialize response');
+    send({ jsonrpc: '2.0', method: 'initialized', params: {} });
+    send({ jsonrpc: '2.0', method: 'textDocument/didOpen', params: {
+      textDocument: { uri: uri, languageId: 'javascript', version: 1, text: editorText } } });
+    var isPush = function(f) { return f.method === 'textDocument/publishDiagnostics' && f.params.uri === uri; };
+    var lines = function(f) {
+      return f.params.diagnostics.filter(function(d) { return d.code === 'typing-property-no-class'; })
+        .map(function(d) { return d.range.start.line; });
+    };
+    var opened = await waitFor(isPush, 'the didOpen push');
+    test(lines(opened).join() === '4', 'ftypechecks lane: the open document gets its warning on line 4 (got ' + lines(opened) + ')');
+
+    // Another tool writes the file; the editor keeps its unsaved text.
+    var before = frames.length;
+    await new Promise(function(r) { setTimeout(r, 100); });   // a new mtime
+    fs.writeFileSync(file, diskText);
+    await waitFor(function(f, i) { return i >= before && isPush(f); }, 'a push after the change on disk');
+    await new Promise(function(r) { setTimeout(r, 300); });   // any push that follows it
+    var pushes = frames.slice(before).filter(isPush);
+    var last = pushes[pushes.length - 1];
+    test(lines(last).join() === '4',
+      'ftypechecks lane: after a change on disk, the last push is on the editor text\'s lines (line 4, got ' + lines(last) + ' over ' + pushes.length + ' pushes)');
+  } catch (e) {
+    test(false, 'ftypechecks lane threw: ' + ( e && e.stack ? e.stack : e ));
+  } finally {
+    process.stdout.write = origWrite;
+    process.stdin.removeAllListeners('data');
+    process.stdin.removeAllListeners('end');
+    process.stdin.pause();
+    if ( ws ) fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+module.exports = { done: laneDone };

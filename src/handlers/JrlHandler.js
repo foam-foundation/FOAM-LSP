@@ -31,24 +31,28 @@ foam.CLASS({
         message: 'Row split over lines: FOAM reads each of these lines as a row of its own, so the row loads half-filled or not at all.',
         fix: 'Put p({ and }) on lines of their own, or write the row on one line.'
       },
+      // A case with a fix of its own names it in addRowShapeDiags_ (`indented`, ...).
       'jrl-not-a-row': {
         severity: 2,
         message: 'FOAM reads this line as a row and fails on it.',
-        fix: 'Start a comment with // at the very start of the line.'
+        fix: 'Start a comment with // at the very start of the line.',
+        indented: 'Remove the spaces at the start of the line: FOAM reads a row only from its first character.'
       },
       'jrl-row-unparsed': {
         severity: 1,
         message: 'FOAM cannot read this row and skips it.',
-        fix: 'Check the quotes, commas and brackets.'
+        fix: 'Check the quotes, commas and brackets.',
+        unclosed: 'FOAM drops the last character of a row, here the } that closes it: end the row with ).'
       },
       'jrl-row-trailing': {
         severity: 1,
         message: 'FOAM reads this row up to the } that closes its first {, and drops the rest with no error:',
-        fix: 'Move the dropped keys inside the braces.'
+        fix: 'Move the dropped keys inside the braces.',
+        secondRow: 'Put the second row on a line of its own.'
       },
       'jrl-rows-no-id': {
         severity: 2,
-        message: 'A replay gives them all the same empty id, so only the last one survives.',
+        message: 'A replay gives them all the same empty id and merges them into one row: each key keeps the value of the last row that sets it.',
         fix: 'Give every row its own "id".'
       }
     }
@@ -427,16 +431,52 @@ foam.CLASS({
     },
 
     function evalJrlObject_(objStr) {
-      /** Parse a JRL object string (JSON or FOAM unquoted-key format). */
+      /**
+       * Parse a JRL object string (JSON or FOAM unquoted-key format). Not
+       * plain JSON: its strings are rewritten as FOAM reads them (jsonStrings_)
+       * before the eval, so a backtick string is text, never a template.
+       */
       try {
         return JSON.parse(objStr);
       } catch (e) {
         try {
-          return eval('(' + objStr + ')');
+          return eval('(' + this.jsonStrings_(objStr) + ')');
         } catch (e2) {
           return null;
         }
       }
+    },
+
+    function jsonStrings_(text) {
+      /**
+       * The text with each string written as a JSON string holding the value
+       * FOAM's StringParser reads (foam3 src/foam/lib/json/StringParser.java):
+       * """…""", "…", '…' and `…`, each plain text with \ escapes (\uXXXX,
+       * \n \t \r \f \b, else the next character as is). A backtick string is
+       * no template: ${…} in it is text. An unclosed string is left as written
+       * (the object around it cannot close either).
+       */
+      var ESC = { n: '\n', t: '\t', r: '\r', f: '\f', b: '\b' };
+      var out = '', i = 0;
+      while ( i < text.length ) {
+        var c = text.charAt(i);
+        var q = text.substr(i, 3) === '"""' ? '"""' : ( c === '"' || c === "'" || c === '`' ) ? c : null;
+        if ( ! q ) { out += c; i++; continue; }
+        var s = '', j = i + q.length, closed = false;
+        while ( j < text.length ) {
+          if ( text.substr(j, q.length) === q ) { closed = true; j += q.length; break; }
+          var d = text.charAt(j);
+          if ( d !== '\\' ) { s += d; j++; continue; }
+          if ( /^u[0-9a-fA-F]{4}$/.test(text.substr(j + 1, 5)) ) { s += String.fromCharCode(parseInt(text.substr(j + 2, 4), 16)); j += 6; continue; }
+          var e = text.charAt(j + 1);
+          s += ESC[e] || e;
+          j += 2;
+        }
+        if ( ! closed ) return out + text.slice(i);
+        out += JSON.stringify(s);
+        i = j;
+      }
+      return out;
     },
 
     function getSegmentAt_(line, col, opt_entry) {
@@ -1338,11 +1378,15 @@ foam.CLASS({
        * after `p(` and ignores what follows (JSONParser.parseString stops
        * there). Returns { row, rest }: row is null when the object does not
        * parse, rest is the text after the object other than the closing `)`
-       * (and a `;` or `,` and a // comment after it). """multi-line strings""" read as strings.
+       * (and a `;` or `,` and a // comment after it). FOAM reads the row
+       * without its last character (entry.subSequence(2, length - 1), foam3
+       * F3FileJournal.js:161): when that is the object's closing }, row is null
+       * and unclosed is true. Strings read as FOAM reads them (evalJrlObject_).
        */
-      var body = text.slice(2).replace(/"""([\s\S]*?)"""/g, function(m, s) { return JSON.stringify(s); });
+      var body = text.slice(2);
       var end  = this.objectEnd_(body);
       if ( end === -1 ) return { row: null, rest: '' };
+      if ( end === body.length - 1 ) return { row: null, rest: '', unclosed: true };
       var row  = this.evalJrlObject_(body.slice(0, end + 1));
       var tail = body.slice(end + 1);
       return {
@@ -1359,8 +1403,9 @@ foam.CLASS({
         var c = text.charAt(i);
         if ( quote ) {
           if ( c === '\\' ) i++;
-          else if ( c === quote ) quote = null;
-        } else if ( c === '"' || c === "'" || c === '`' ) quote = c;     // FOAM's StringParser takes all three
+          else if ( text.substr(i, quote.length) === quote ) { i += quote.length - 1; quote = null; }
+        } else if ( text.substr(i, 3) === '"""' ) { quote = '"""'; i += 2; }   // FOAM's StringParser takes all four
+        else if ( c === '"' || c === "'" || c === '`' ) quote = c;
         else if ( c === '{' || c === '[' ) depth++;
         else if ( c === '}' || c === ']' ) { if ( --depth === 0 ) return c === '}' ? i : -1; }
         else if ( depth === 0 && ! /\s/.test(c) ) return -1;
@@ -1376,12 +1421,12 @@ foam.CLASS({
        * read rows by brackets; these read them the way the server will.
        */
       var self = this;
-      var add = function(code, line, opt_what, opt_detail) {
+      var add = function(code, line, opt_what, opt_detail, opt_case) {
         var r = self.ROW_RULES[code];
         diags.push(self.Diagnostic.create({
           range: { start: { line: line, character: 0 }, end: { line: line, character: lines[line].replace(/\r$/, '').length } },
           severity: r.severity,
-          message: ( opt_what ? opt_what + ' ' : '' ) + r.message + ( opt_detail ? ' ' + opt_detail : '' ) + ' ' + r.fix,
+          message: ( opt_what ? opt_what + ' ' : '' ) + r.message + ( opt_detail ? ' ' + opt_detail : '' ) + ' ' + ( r[opt_case] || r.fix ),
           code: code
         }).toLSP());
       };
@@ -1389,9 +1434,9 @@ foam.CLASS({
       var noId   = Object.create(null);    // class id -> first lines of its rows with no id
       for ( var i = 0 ; i < rows.length ; i++ ) {
         var t = rows[i].text, at = rows[i].startLine;
-        if ( ! this.ROW_START.test(t) ) { add('jrl-not-a-row', at); continue; }
+        if ( ! this.ROW_START.test(t) ) { add('jrl-not-a-row', at, null, null, /^\s+[prcv]\(/.test(t) ? 'indented' : null); continue; }
         var read = this.parseFoamRow_(t), row = read.row;
-        if ( row && read.rest ) add('jrl-row-trailing', at, null, read.rest.slice(0, 60));
+        if ( row && read.rest ) add('jrl-row-trailing', at, null, read.rest.slice(0, 60), /^\)\s*[;,]?\s*[prcv]\(/.test(read.rest) ? 'secondRow' : null);
         if ( ! row ) {
           // A one-line row that does not parse, followed by lines that are no
           // rows: one row written over several lines. Its other lines are part
@@ -1399,7 +1444,7 @@ foam.CLASS({
           var j = i + 1;
           while ( j < rows.length && rows[j].startLine === rows[j - 1].endLine + 1 && ! this.ROW_START.test(rows[j].text) ) j++;
           if ( t.indexOf('\n') === -1 && j > i + 1 ) { add('jrl-row-split', at); i = j - 1; }
-          else if ( ! this.isTemplateRow_(t) ) add('jrl-row-unparsed', at);
+          else if ( ! this.isTemplateRow_(t) ) add('jrl-row-unparsed', at, null, null, read.unclosed ? 'unclosed' : null);
           continue;
         }
         if ( t.charAt(0) === 'r' || 'id' in row ) continue;    // a remove names its row by id only

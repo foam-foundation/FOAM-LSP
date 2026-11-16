@@ -493,6 +493,52 @@ test(codes(jrlHandler.handleDiagnostics('p({"class":"' + CC + '","v":1})\np({"cl
   'row shape: the no-id rule reads the id axiom and creates no object');
 test(codes(jrlHandler.handleDiagnostics('p({"class":"foam.parse.lsp.test.JrlComputedId","a":1})\np({"class":"foam.parse.lsp.test.JrlComputedId","a":2})', '')).indexOf('jrl-rows-no-id') === -1,
   'row shape: an id FOAM computes (expression) is not "no id"');
+// PR #37 review: strings read as FOAM's StringParser reads them (foam3
+// src/foam/lib/json/StringParser.java): """…""", "…", '…' and `…` are plain
+// text with \ escapes. A backtick string is no template, so ${…} is text.
+var BT = String.fromCharCode(96);
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1,"accountNo":' + BT + 'x ${cfg.x}' + BT + '})', '')).length === 0,
+  'row shape: a backtick string with ${...} parses (FOAM reads it as text, not a template)');
+test(codes(jrlHandler.handleDiagnostics('p({\n  "class":"' + M + '",\n  "id":1,\n  "accountNo":' + BT + 'if ( ${noSuchCfgA.x} ) {\n    b();\n  }' + BT + '\n})', '')).length === 0,
+  'row shape: a multi-line row with a backtick string over several lines and ${...} parses');
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1,"accountNo":' + BT + 'a\\' + BT + ' ${noSuchCfgB.x}' + BT + '})', '')).length === 0,
+  'row shape: an escaped backtick inside a backtick string does not end it');
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1,"accountNo":"use ' + BT + 'x' + BT + ' here"})', '')).length === 0,
+  'row shape: backticks inside a "..." string are part of the string');
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1,"accountNo":"""a \\""" ' + BT + '${noSuchCfgB.x}' + BT + ' c"""})', '')).length === 0,
+  'row shape: an escaped quote and a backtick inside a """...""" string do not end it');
+test(codes(jrlHandler.handleDiagnostics('p({\n  "class":"' + M + '",\n  "id":1,\n  "accountNo":"two\nlines"\n})', '')).length === 0,
+  'row shape: a "..." string over two lines of a p({ block parses (FOAM\'s StringParser takes a newline)');
+test(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1,"wrongAxiom":' + BT + '${x}' + BT + '})', '').some(function(d) { return d.message.indexOf('wrongAxiom') !== -1; }),
+  'JRL diagnostics: a row with a backtick ${...} string still has its keys checked');
+test(( jrlHandler.evalJrlObject_('{"a":' + BT + '${globalThis.__jrlEvalRan = 1}' + BT + '}') || {} ).a === '${globalThis.__jrlEvalRan = 1}' && ! globalThis.__jrlEvalRan,
+  'evalJrlObject_: a backtick string is read as text, its ${...} never runs');
+
+// A replay merges rows with the same id (foam3 F3FileJournal.js:195-197).
+test(dNoIds.some(function(d) { return d.code === 'jrl-rows-no-id' && /merges them into one row/.test(d.message) && ! /only the last/.test(d.message); }),
+  'row shape: rows with no id say a replay merges them, each key keeping its last value');
+
+// FOAM reads entry.subSequence(2, length - 1) (foam3 F3FileJournal.js:161): the
+// last character is cut, whatever it is.
+var dOpen = jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1}', '');
+test(codes(dOpen).indexOf('jrl-row-unparsed') !== -1,
+  'row shape: a row with no closing ) is flagged (FOAM cuts its last character, the })');
+test(dOpen.some(function(d) { return d.code === 'jrl-row-unparsed' && /end the row with \)/.test(d.message); }),
+  'row shape: the fix for a row with no closing ) says to add it');
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1} ', '')).length === 0,
+  'row shape: a row ending "} " loses only the space, so it parses');
+
+// Each case gets a fix that fits it.
+var dIndent = jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1})\n  p({"class":"' + M + '","id":2})', '');
+test(dIndent.some(function(d) { return d.code === 'jrl-not-a-row' && d.range.start.line === 1 && /spaces at the start/.test(d.message) && ! /comment/.test(d.message); }),
+  'row shape: an indented row is told to drop its spaces, not to start a comment');
+var dGlued = jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1})p({"class":"' + M + '","id":2})', '');
+test(dGlued.some(function(d) { return d.code === 'jrl-row-trailing' && /second row on a line of its own/.test(d.message) && ! /dropped keys/.test(d.message); }),
+  'row shape: a second row glued after ) is told to go on its own line, not to move keys');
+test(dStray.some(function(d) { return d.code === 'jrl-not-a-row' && /comment/.test(d.message); }) &&
+     dTrail.some(function(d) { return d.code === 'jrl-row-trailing' && /dropped keys/.test(d.message); }),
+  'row shape: a stray line and a key after the } keep their fixes');
+
 var rowsOff = foam.parse.lsp.handlers.JrlHandler.create({ index: index, featureConfig: { enabled: function(f) { return f !== 'diagnostics.journalRows'; } } });
 var offDs = rowsOff.handleDiagnostics('p({"class":"' + M + '","id":1,\n  "accountNo":"123"})\np({"class":"com.nonexistent.FakeClass9","id":2})', '');
 test(codes(offDs).indexOf('jrl-row-split') === -1 && offDs.some(function(d) { return /Unknown class/.test(d.message); }),

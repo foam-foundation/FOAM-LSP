@@ -539,7 +539,8 @@ function start() {
   // Take the disk text as the document's text and re-register it, as a save would.
   function reindexFromDisk_(file) {
     var text;
-    try { text = fs_.readFileSync(file, 'utf8'); } catch ( e ) { return; }
+    try { text = fs_.readFileSync(file, 'utf8'); }
+    catch ( e ) { require('./logError').logLspError('reindexFromDisk_: read ' + file, e); return; }
     var uri = 'file://' + file;
     var doc = documents[uri];
     if ( doc && doc.text === text && ftc.isCurrent(file) ) return;
@@ -547,7 +548,17 @@ function start() {
     // back: an editor's unsaved edits stay the document's text.
     documents[uri] = { text: text, version: doc ? doc.version + 1 : 0 };
     try { reindexFile(uri); }
-    finally { if ( doc ) documents[uri] = doc; else delete documents[uri]; }
+    finally {
+      if ( doc ) documents[uri] = doc; else delete documents[uri];
+      // reindexFile pushed the disk text's diagnostics for this uri: push the
+      // editor's own again, or they sit on the disk text's lines.
+      if ( doc && doc.text !== text ) {
+        fileModelCache.invalidate(uri);
+        var kind = fileClassifier.classify(uri, doc.text);
+        if ( kind === 'jrl' ) pushJrlDiagnostics(uri, doc.text);
+        else if ( kind === 'class' || kind === 'pom' ) pushDiagnostics(uri, doc.text);
+      }
+    }
   }
 
   var affectedReanalyzeTimer_ = null;
