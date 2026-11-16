@@ -149,6 +149,8 @@ function generate_(opts, log) {
     'foam.lang.FObjectProperty': of => of ? { t: tsId(of), loose: true } : { t: 'any' },
     'foam.lang.Enum':            of => of ? { t: tsId(of), loose: true } : { t: 'any' },
     'foam.lang.FObjectArray':    of => of ? { t: tsId(of) + '[]', loose: true } : { t: 'any[]' },
+    // FOAM keeps any object with an f() as the expression itself: a Property (HAS_KEY(X.PROP, ...)).
+    'foam.mlang.ExprProperty':   of => of ? { t: tsId(of) + ' | foam.lang.Property', loose: true } : { t: 'any' },
     // A DAO that says what it holds: find() and select() give that class back.
     'foam.dao.DAOProperty':      of => ! HAS_DAO ? { t: 'any' } : { t: of ? `foam.$DAO<${tsId(of)}>` : 'foam.dao.DAO', loose: true },
     // A reference holds the id of the other object, not the object.
@@ -505,13 +507,19 @@ function generate_(opts, log) {
     '  }',
     '  function CLASS<const P extends string, const N extends string>(',
     '    model: { package?: P; name?: N } & $Model<$This<P, N>, $MethodsOf<P, N, $This<P, N>>, $PropsOf<P, N, $This<P, N>>>): void;',
-    '  function lookup(id: string, opt?: boolean): any;',
+    '  // A known class id gives that class, so isInstance narrows: foam.maybeLookup(\'x.Y\').isInstance(o).',
+    '  type $Lookup<K> = K extends keyof $Instances ? $Class<$Instances[K], any> : any;',
+    '  function lookup<const K extends string>(id: K, opt?: boolean): $Lookup<K>;',
+    '  function maybeLookup<const K extends string>(id: K): $Lookup<K> | null;',
     '  function assert(cond: any, ...msg: any[]): void;',
     // Other things on the foam object (foam.Function, foam.INTERFACE, ...).
-    ...emit(tree.foam, '  ', foam).filter(l => ! /^  const (CLASS|lookup|assert): any;$/.test(l)),
+    ...emit(tree.foam, '  ', foam).filter(l => ! /^  const (CLASS|lookup|maybeLookup|assert): any;$/.test(l)),
     '}',
     ...Object.keys(tree).filter(k => k !== 'foam').sort().flatMap(k =>
       [ '', `declare namespace ${seg(k)} {`, ...emit(tree[k], '  ', globalThis[k]), '}' ]),
+    '',
+    '// What foam3 adds to browser objects.',
+    'interface Document { installedStyles: any; }',
     '',
   ];
   fs.writeFileSync(opts.out, lines.join('\n'));
