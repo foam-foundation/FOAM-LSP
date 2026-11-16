@@ -20,6 +20,9 @@ function start() {
   // it exists so a client that skips or reorders it fails OPEN (every feature
   // on) instead of dereferencing null.
   var FeatureConfig = require('./FeatureConfig');
+  // EXPERIMENT: FTypechecks types file, written from this server's live FOAM.
+  var FTypechecks = require('./FTypechecks');
+  var ftc = null;
   var featureConfig = FeatureConfig.load({});
 
   var index = globalThis.__foamLSPIndex__ || foam.parse.lsp.FoamIndex.create();
@@ -472,6 +475,13 @@ function start() {
       }
     }
 
+    // EXPERIMENT: rewrite the FTypechecks types file first, so its hook,
+    // which is waiting for it, gets it before the diagnostics work below.
+    if ( ftc && savedKind === 'class' ) {
+      var savedPath = uriToPath_(uri);
+      if ( ftc.inSources(savedPath) ) ftc.write([savedPath]);
+    }
+
     // Compute the dependency closure — files whose diagnostics could be
     // impacted by this change. Empty list for non-FOAM saves; JRLs only
     // affect the open-file loop below.
@@ -523,6 +533,32 @@ function start() {
 
   function uriToPath_(uri) {
     return require('./uri').uriToPath(uri);
+  }
+
+  // EXPERIMENT: a FOAM file changed on disk (Claude Code's Edit tool, git, ...).
+  // Take the disk text as the document's text and re-register it, as a save would.
+  function reindexFromDisk_(file) {
+    var text;
+    try { text = fs_.readFileSync(file, 'utf8'); }
+    catch ( e ) { require('./logError').logLspError('reindexFromDisk_: read ' + file, e); return; }
+    var uri = 'file://' + file;
+    var doc = documents[uri];
+    if ( doc && doc.text === text && ftc.isCurrent(file) ) return;
+    // Re-register from the disk text, then put an open document's own text
+    // back: an editor's unsaved edits stay the document's text.
+    documents[uri] = { text: text, version: doc ? doc.version + 1 : 0 };
+    try { reindexFile(uri); }
+    finally {
+      if ( doc ) documents[uri] = doc; else delete documents[uri];
+      // reindexFile pushed the disk text's diagnostics for this uri: push the
+      // editor's own again, or they sit on the disk text's lines.
+      if ( doc && doc.text !== text ) {
+        fileModelCache.invalidate(uri);
+        var kind = fileClassifier.classify(uri, doc.text);
+        if ( kind === 'jrl' ) pushJrlDiagnostics(uri, doc.text);
+        else if ( kind === 'class' || kind === 'pom' ) pushDiagnostics(uri, doc.text);
+      }
+    }
   }
 
   var affectedReanalyzeTimer_ = null;
@@ -691,13 +727,22 @@ function start() {
             console.error('[LSP] initialize: unusable rootUri "' + params.rootUri + '": ' + e.message);
           }
         }
+        // EXPERIMENT: FTypechecks. Off unless a foam-check.config.json is found.
+        ftc = FTypechecks.create({
+          root: wsRoot, log: function(m) { console.error(m); },
+          cache: fileModelCache, typingChecker: diagnosticsHandler.typingChecker, jrlHandler: jrlHandler, index: index
+        });
         featureConfig = FeatureConfig.load({
           rootPath:        wsRoot,
           // A project that type-checks its models wants the typing rules.
-          projectDefaults: wsRoot && fs_.existsSync(path_.join(wsRoot, 'foam-check.config.json')) ? { 'diagnostics.typing': true } : null,
+          projectDefaults: ftc ? { 'diagnostics.typing': true } : null,
           initOptions:     params && params.initializationOptions && params.initializationOptions.foam
         });
         featureConfig.warnings.forEach(function(w) { console.error('[LSP] config: ' + w); });
+        if ( ftc ) {
+          ftc.watch(reindexFromDisk_);
+          setTimeout(function() { ftc.write(null); }, 0);   // after initialize is answered
+        }
         diagnosticsHandler.featureConfig = featureConfig;
         // Diagnostic tags (faded unused code, struck-through deprecated
         // references) and relatedInformation (a second location) are

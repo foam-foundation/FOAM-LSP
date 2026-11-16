@@ -27,6 +27,8 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `lintChecks.js` | foam-lint check names | The one list `LintHandler.ALL_CHECKS` and the MCP `foam_lint` enum both read, so a new check shows up on every surface. `.DEFAULT` runs when no checks are named; `.OPT_IN` (`typing`, `journal-rows`) only when named, so adding them did not change what an existing CI run reports |
 | `bin/lint-cli.js` | foam-lint without the LSP server | Boots pmake, runs `LintHandler.lint()`; `--diff <ref>`, `--checks`, `--format text\|json`, `--strict`; exit 0 clean or warns only, 1 any error (any finding with `--strict`), 2 boot, check-name or `--diff` ref error. `--diff` paths are cwd-relative (`git diff --relative`), so the project may be a repo subdirectory |
 | `lsp-start.js` | Entry point | Console redirect, buildlib globals, pmake invocation |
+| `FTypechecks.js` | EXPERIMENT: files for the FTypechecks plugin | Off unless the workspace has a `foam-check.config.json`. After a source file changes (an editor save, or `fs.watch` for edits made outside the editor) it writes `.foam-check/app.d.ts` (`TypesFile`), `report.json` (the plugin's format and rule names, built from `TypingChecker` and `JrlHandler`, so each check exists once) and `lsp.json` (which file versions it saw; `generator` echoes the plugin's request so the plugin knows these files answer it). Findings are kept per file while its mtime is unchanged: about 0.6 s per write on a 1144-file app, 6 s for the first. Its style list holds only classes this process loaded, the scope the plugin's starting lists were made with |
+| `TypesFile.js` | A `.d.ts` from the live classes | `generate({ out, level, package })` → `{ classes, lines, asserts, shapes }`. Moved from the plugin's `scripts/gen-types.js` (the plugin keeps a copy for the case with no LSP). Empty catches opt out of the bare-catch count, each a lookup that means "type unknown" |
 | `LSPMaker.js` | Build Maker for pmake | Sets flags, builds file index, starts server |
 
 ### Handlers
@@ -339,7 +341,7 @@ cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 # One category (see test/run.js CATEGORIES for the full list —
 # foamIndex, grammar, utilities, completion, hover, diagnostics, i18n,
 # navigation, java, jrl, lint, vscodeLint, bareCatch, editorFeatures, typeHierarchy, usageIndex,
-# callHierarchy, pomValidation, pomNavigation, mcp, typing):
+# callHierarchy, pomValidation, pomNavigation, mcp, typing, ftypechecks):
 node <FOAM-LSP>/test/run.js i18n
 
 # FOAM-model tests (src/test, opt-in, run alone):
