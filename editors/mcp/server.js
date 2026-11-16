@@ -401,7 +401,6 @@ class FoamLSPClient {
     // resets state so the next tool call boots a fresh one.
     const idleMs = Number(process.env.FOAM_LSP_IDLE_MS) || 30 * 60 * 1000;
     setInterval(function() {
-      if ( this.keepWarm ) return;          // FTypechecks waits on it: see keepWarm
       if ( this.child && this.isReady && this.pending.size === 0 &&
            Date.now() - this.lastUsed > idleMs ) {
         log('LSP idle for ' + Math.round(idleMs / 60000) + 'min — stopping (next call reboots it)');
@@ -480,21 +479,7 @@ class FoamLSPClient {
         p.reject(new Error('LSP exited (code=' + code + ', signal=' + signal + ')'));
       }
       this.pending.clear();
-      const wasReady = this._wasReady;
-      this._wasReady = false;
       this._resetReady();
-      // EXPERIMENT (FTypechecks): keep an LSP running, so the check after an edit
-      // finds the types file written. A branch switch (HEAD change) restarts it at
-      // once. Not after a failed boot: that would loop.
-      // At most 5 restarts in 10 minutes: an LSP that keeps dying is left stopped.
-      const now = Date.now();
-      this._restarts = ( this._restarts || [] ).filter(function(t) { return now - t < 600000; });
-      if ( this.keepWarm && wasReady && this._restarts.length < 5 ) {
-        this._restarts.push(now);
-        setTimeout(function() { if ( ! this.child ) this.start(); }.bind(this), 2000);
-      } else if ( this.keepWarm && wasReady ) {
-        log('LSP exited 5 times in 10 minutes; not restarting it until the next request');
-      }
     }.bind(this));
 
     // Kick off initialize.
@@ -513,7 +498,6 @@ class FoamLSPClient {
       }]
     }).then(function(initResult) {
       log('LSP initialized');
-      this._wasReady = true;
       this._notify('initialized', {});
       this.isReady = true;
       this._resolveReady(initResult);
@@ -963,23 +947,11 @@ function toolContent(text) {
 }
 
 function main() {
-  // The working directory, as before, when it is a FOAM app (it has a pom.js). Else
-  // CLAUDE_PROJECT_DIR, which Claude Code sets in every MCP server it starts: the
-  // session's project root (a worktree's own root in a worktree).
-  const cwdIsApp = fs.existsSync(path.join(process.cwd(), 'pom.js'));
-  const projectRoot = process.env.FOAM_PROJECT_ROOT ||
-    ( cwdIsApp ? process.cwd() : process.env.CLAUDE_PROJECT_DIR ) || process.cwd();
+  const projectRoot = process.env.FOAM_PROJECT_ROOT || process.cwd();
   log('project root:', projectRoot);
 
   // No eager boot — whenReady() spawns the LSP on the first foam tool call.
   const lsp = new FoamLSPClient(projectRoot);
-  // EXPERIMENT (FTypechecks): a project with foam-check.config.json wants the types
-  // file written after every edit, so the LSP starts now and stays running.
-  if ( process.env.FTYPECHECKS_CONFIG || fs.existsSync(path.join(projectRoot, 'foam-check.config.json')) ) {
-    lsp.keepWarm = true;
-    log('foam-check.config.json found: starting the LSP now and keeping it running (FTypechecks)');
-    lsp.start();
-  }
 
   const tools = toolSchemas();
 

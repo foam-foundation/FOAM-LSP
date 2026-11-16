@@ -465,27 +465,6 @@ severity that is not `'error'` as a warning; today `foam/lint` only emits
 `'error'` and `'warn'`, so this is exact, but a future third severity would
 silently land in the warning bucket.
 
-## Type checking with FTypechecks (experiment)
-
-[FTypechecks](https://github.com/ajeetgill/foam-type-check) is a Claude Code
-plugin that type-checks plain FOAM JavaScript against TypeScript types made
-from the live classes, with no build step. Its hook checks each edit Claude
-makes. Install and set-up steps:
-[foam-type-check README](https://github.com/ajeetgill/foam-type-check#install).
-
-This server helps it in two ways:
-- The typing warnings (`foam.features.diagnostics.typing`) and the journal row
-  warnings (`foam.features.diagnostics.journalRows`) are the plugin's style and
-  journal rules, shown in the editor. `lint-cli.js --checks typing,journal-rows`
-  runs them with no server.
-- In a workspace with a `foam-check.config.json`, the server writes the
-  plugin's types and report after each change (`src/FTypechecks.js`), which
-  halves the hook's time. The same file turns the typing warnings on.
-
-What it does not check: anything typed `Object`, `Array` or `any`, the
-string-based parts of FOAM (expression arguments by name, templates, CSS,
-class names in strings), and Java.
-
 ## VS Code Extension
 
 ### Sidebar Panel
