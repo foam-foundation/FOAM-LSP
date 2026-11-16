@@ -127,7 +127,8 @@ foam.CLASS({
           checker.check(m, text).forEach(function(f) {
             var r = checker.RULES[f.code];
             findings.push(self.finding_('typing', 'warn', file, text.slice(0, f.start).split('\n').length,
-              r.message.replace('%s', f.name), f.fix ? f.fix.title.replace(/ \(from its value\)$/, '') : r.fix));
+              r.message.replace('%s', f.name),
+              f.fixes.length > 1 ? checker.NUMBER_FIX : f.fixes.length ? f.fixes[0].title.replace(/ \(from its value\)$/, '') : r.fix));
           });
         });
       });

@@ -44,7 +44,12 @@ foam.CLASS({
         message: 'DAO import "%s" does not say what it holds.',
         fix: "Add of: '<class id>' to the import."
       }
-    }
+    },
+    // A whole number does not say which class: FOAM gives a property with no
+    // class a plain Property (foam3 EndBoot.js:44-48), and Int truncates in JS
+    // and is an int in Java. So the three are offered, none preferred.
+    NUMBER_CLASSES: [ 'Int', 'Long', 'Float' ],
+    NUMBER_FIX: "Pick the class by what the number means: class: 'Int' for a whole number that fits in 32 bits, class: 'Long' for ids, timestamps and big counts, class: 'Float' for decimals."
   },
 
   properties: [
@@ -61,9 +66,9 @@ foam.CLASS({
   methods: [
     function check(m, text) {
       /**
-       * The findings for model m in text: [{ code, name, start, end, fix }],
-       * start/end the offsets of the member's name, fix null or
-       * { title, offset, insert }.
+       * The findings for model m in text: [{ code, name, start, end, fixes }],
+       * start/end the offsets of the member's name, fixes a list (empty when
+       * there is none) of { title, offset, insert }.
        */
       if ( ! m || m.type_ === 'LIB' ) return [];
       var entry = this.grammar && this.grammar.modelEntryFor(text, m);
@@ -73,8 +78,8 @@ foam.CLASS({
         var e = entry && ( entry[list] || [] ).filter(function(x) { return x.name === name; })[0];
         return e || null;
       };
-      var add = function(code, name, span, opt_fix) {
-        out.push({ code: code, name: name, start: span[0], end: span[1], fix: opt_fix || null });
+      var add = function(code, name, span, opt_fixes) {
+        out.push({ code: code, name: name, start: span[0], end: span[1], fixes: opt_fixes || [] });
       };
       var fallback = entry ? [ entry.nameStart || entry.startPos, entry.nameEnd || entry.startPos ] : [ 0, 0 ];
 
@@ -85,7 +90,7 @@ foam.CLASS({
         if ( ax && ax.cls_ && ax.cls_.id !== 'foam.lang.Property' ) return;   // a class FOAM gave it
         var e = at('properties', name);
         add('typing-property-no-class', name, e ? [ e.nameStart, e.nameEnd ] : fallback,
-          e && typeof p === 'object' && ! Array.isArray(p) ? this.classFix_(p, e, text) : null);
+          e && typeof p === 'object' && ! Array.isArray(p) ? this.classFixes_(p, e, text) : null);
       }, this);
 
       ( m.methods || [] ).forEach(function(f) {
@@ -129,7 +134,7 @@ foam.CLASS({
           severity: self.Diagnostic.WARNING,
           message:  r.message.replace('%s', f.name) + ' ' + r.fix,
           code:     f.code,
-          fix:      f.fix
+          fix:      f.fixes
         }));
       });
     },
@@ -171,19 +176,23 @@ foam.CLASS({
       });
     },
 
-    function classFix_(p, e, text) {
+    function classFixes_(p, e, text) {
       /**
-       * The class a property's value says, as an insert after its '{'; null
-       * when the value does not say (no value, null, an object, a factory).
+       * The classes a property's value allows, each as an insert after its
+       * '{': one when the value says (a string, a boolean, a decimal, an
+       * array), NUMBER_CLASSES for a whole number, none when the value does
+       * not say (no value, null, an object, a factory).
        */
-      if ( ! ( 'value' in p ) ) return null;
+      if ( ! ( 'value' in p ) ) return [];
       var v = p.value;
-      var cls = typeof v === 'string'  ? 'String' :
-                typeof v === 'boolean' ? 'Boolean' :
-                typeof v === 'number'  ? ( Number.isInteger(v) ? 'Int' : 'Float' ) :
-                Array.isArray(v)       ? 'Array' : null;
-      if ( ! cls || text.charAt(e.startPos) !== '{' ) return null;
-      return { title: "Add class: '" + cls + "' (from its value)", offset: e.startPos + 1, insert: " class: '" + cls + "'," };
+      var cls = typeof v === 'string'  ? [ 'String' ] :
+                typeof v === 'boolean' ? [ 'Boolean' ] :
+                typeof v === 'number'  ? ( Number.isInteger(v) ? this.NUMBER_CLASSES : [ 'Float' ] ) :
+                Array.isArray(v)       ? [ 'Array' ] : [];
+      if ( text.charAt(e.startPos) !== '{' ) return [];
+      return cls.map(function(c) {
+        return { title: "Add class: '" + c + "'" + ( cls.length > 1 ? '' : ' (from its value)' ), offset: e.startPos + 1, insert: " class: '" + c + "'," };
+      });
     },
 
     function importSpan_(text, entry, name) {

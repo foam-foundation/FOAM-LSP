@@ -112,6 +112,25 @@ test(fixFor('ratio') && /Float/.test(fixFor('ratio').title), "typing fix: value 
 test(fixFor('label') && /String/.test(fixFor('label').title), "typing fix: value 'x' offers class: 'String'");
 test(fixFor('computed') === null, 'typing fix: a factory says no class, so no fix');
 test(fixFor('shorthand') === null, 'typing fix: a shorthand property has no value, so no fix');
+// PR #37 review: a whole number does not say which number class. Int, Long
+// and Float are three plain fixes, none preferred, so no auto fix picks Int
+// for an id or a timestamp. A value that does say keeps one preferred fix.
+var fixesFor = function(name) {
+  var d = named(ds, 'typing-property-no-class', name)[0];
+  var as = d ? actions.handle(src, d.range, { diagnostics: [ d ] }, u1) : [];
+  return as.filter(function(a) { return a.kind === 'quickfix'; });
+};
+var countFixes = fixesFor('count');
+test(countFixes.map(function(a) { return ( /'(\w+)'/.exec(a.title) || [] )[1]; }).join() === 'Int,Long,Float',
+  "typing fix: value 3 offers Int, Long and Float (got " + countFixes.map(function(a) { return a.title; }).join(' | ') + ')');
+test(countFixes.length === 3 && countFixes.every(function(a) { return ! a.isPreferred; }),
+  'typing fix: none of the three number fixes is preferred');
+test(countFixes[1] && apply(countFixes[1]).indexOf("{ class: 'Long', name: 'count', value: 3 }") !== -1,
+  'typing fix: the Long fix writes Long');
+test(fixesFor('ratio').length === 1 && fixesFor('ratio')[0].isPreferred === true,
+  'typing fix: value 0.5 has one fix, Float, preferred (a decimal is no Int or Long)');
+test(fixesFor('label').length === 1 && fixesFor('label')[0].isPreferred === true,
+  "typing fix: value 'x' keeps one preferred fix");
 var fixed = apply(fCount);
 test(named(handlerOn.handle(fixed, uri()), 'typing-property-no-class', 'count').length === 0, 'typing fix: after the fix, the warning is gone');
 

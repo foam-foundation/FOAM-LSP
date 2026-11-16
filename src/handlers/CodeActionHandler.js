@@ -202,19 +202,20 @@ foam.CLASS({
           });
         }
 
-        // Typing rule → the fix TypingChecker found for this member, if any
+        // Typing rule → the fixes TypingChecker found for this member. Only a
+        // lone fix is preferred: of Int, Long and Float no auto fix may pick one.
         if ( /^typing-/.test(diag.code) ) {
-          var tf = this.typingFix_(text, uri, diag);
-          if ( tf ) {
+          var tfs = this.typingFixes_(text, uri, diag);
+          tfs.forEach(function(tf) {
             var at = this.typingChecker.analyzer.offsetToPosition(text, tf.offset);
             actions.push({
               title:       tf.title,
               kind:        'quickfix',
-              isPreferred: true,
+              isPreferred: tfs.length === 1,
               diagnostics: [diag],
               edit: { changes: this.makeEdit_(uri, { start: at, end: at }, tf.insert) }
             });
-          }
+          }, this);
         }
 
         // Wrong Java import package → replace
@@ -236,18 +237,18 @@ foam.CLASS({
       return actions;
     },
 
-    function typingFix_(text, uri, diag) {
-      /** The fix of the typing finding this diagnostic reports, found again in the current text; or null. */
-      if ( ! this.cache || ! this.typingChecker ) return null;
+    function typingFixes_(text, uri, diag) {
+      /** The fixes of the typing finding this diagnostic reports, found again in the current text; [] when none. */
+      if ( ! this.cache || ! this.typingChecker ) return [];
       var self = this, models = this.cache.getModels(uri, text);
       for ( var i = 0 ; i < models.length ; i++ ) {
         var hit = this.typingChecker.check(models[i], text).filter(function(f) {
           var p = self.typingChecker.analyzer.offsetToPosition(text, f.start);
-          return f.code === diag.code && f.fix && p.line === diag.range.start.line && p.character === diag.range.start.character;
+          return f.code === diag.code && f.fixes.length && p.line === diag.range.start.line && p.character === diag.range.start.character;
         })[0];
-        if ( hit ) return hit.fix;
+        if ( hit ) return hit.fixes;
       }
-      return null;
+      return [];
     },
 
     function makeEdit_(uri, range, newText) {

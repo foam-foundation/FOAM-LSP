@@ -336,8 +336,12 @@ module.exports.done = (async function() {
   var typing = (await opt.lint({ checks: [ 'typing' ] })).findings;
   test(typing.some(function(f) { return f.check === 'typing' && /"count"/.test(f.message) && f.line === 4 && f.severity === 'warn'; }),
     'typing: a property with no class, at its line, as a warning');
-  test(typing.some(function(f) { return /"count"/.test(f.message) && /class: 'Int'/.test(f.fix); }),
-    "typing: the fix names the class its value says");
+  // A whole number: the fix names all three classes and how to pick, so an
+  // agent reading foam_lint is not told to write Int.
+  var countFix = ( typing.filter(function(f) { return /"count"/.test(f.message); })[0] || {} ).fix || '';
+  test(/'Int'/.test(countFix) && /'Long'/.test(countFix) && /'Float'/.test(countFix) && /32 bits/.test(countFix) && /timestamps/.test(countFix) && /decimals/.test(countFix),
+    'typing: the fix for a whole number names Int, Long and Float and how to pick (got: ' + countFix + ')');
+  test(! /^Add class: 'Int'/.test(countFix), 'typing: the fix for a whole number does not say to add Int');
   test(typing.some(function(f) { return /"go"/.test(f.message); }), 'typing: a method with an untyped argument');
   test(! typing.some(function(f) { return /"label"/.test(f.message); }), 'typing: a typed property is not reported');
   test(! typing.some(function(f) { return /Plain\.js$/.test(f.path); }), 'typing: a plain script is not a model file');
