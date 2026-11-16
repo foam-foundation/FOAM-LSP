@@ -87,6 +87,11 @@ foam.CLASS({
         tags — see CompletionItem.toLSPItems.`
     },
     {
+      name: 'featureConfig',
+      documentation: `Optional feature-toggle config (server.js wires it). Gates the
+        journal-row diagnostics (diagnostics.journalRows). Null: every check runs.`
+    },
+    {
       name: 'clientDiagnosticCaps',
       documentation: `The client's textDocument.publishDiagnostics capability
         (server.js wires it), read by Diagnostic.toLSP for the DEPRECATED tag
@@ -1225,6 +1230,7 @@ foam.CLASS({
         // not load (a test or Java-only class) is fine; its keys go unchecked.
         var cls = this.index.getClass(classId);
         if ( ! cls && this.index.classDeclared(classId) ) continue;
+        if ( ! cls && /\{\w+\}/.test(classId) ) continue;      // a template's placeholder: {package}.{Model}
         if ( ! cls ) {
           // Find the class string in the entry lines
           for ( var sl = startLine ; sl <= endLine ; sl++ ) {
@@ -1250,7 +1256,9 @@ foam.CLASS({
         this.validateEntryProperties_(entry, cls, classId, lines, startLine, endLine, diags, deprecated);
       }
 
-      this.addRowShapeDiags_(lines, diags, opt_uri);
+      if ( ! this.featureConfig || this.featureConfig.enabled('diagnostics.journalRows') ) {
+        this.addRowShapeDiags_(lines, diags, opt_uri);
+      }
 
       if ( deprecated.length ) {
         this.addDeprecatedKeyDiags_(text, deprecated, diags,
@@ -1330,15 +1338,17 @@ foam.CLASS({
        * after `p(` and ignores what follows (JSONParser.parseString stops
        * there). Returns { row, rest }: row is null when the object does not
        * parse, rest is the text after the object other than the closing `)`
-       * (and a `;` or a // comment after it). """multi-line strings""" read as strings.
+       * (and a `;` or `,` and a // comment after it). """multi-line strings""" read as strings.
        */
       var body = text.slice(2).replace(/"""([\s\S]*?)"""/g, function(m, s) { return JSON.stringify(s); });
       var end  = this.objectEnd_(body);
       if ( end === -1 ) return { row: null, rest: '' };
       var row  = this.evalJrlObject_(body.slice(0, end + 1));
+      var tail = body.slice(end + 1);
       return {
         row:  row && typeof row === 'object' ? row : null,
-        rest: body.slice(end + 1).replace(/\s*\/\/[^"'`]*$/, '').replace(/\)\s*;?\s*$/, '').trim()
+        // Nothing lost: the closing ), then at most a ; or , and a // comment (any text).
+        rest: /^\s*\)\s*[;,]?\s*(\/\/[\s\S]*)?$/.test(tail) ? '' : tail.replace(/\)\s*[;,]?\s*$/, '').trim()
       };
     },
 
@@ -1389,7 +1399,7 @@ foam.CLASS({
           var j = i + 1;
           while ( j < rows.length && rows[j].startLine === rows[j - 1].endLine + 1 && ! this.ROW_START.test(rows[j].text) ) j++;
           if ( t.indexOf('\n') === -1 && j > i + 1 ) { add('jrl-row-split', at); i = j - 1; }
-          else add('jrl-row-unparsed', at);
+          else if ( ! this.isTemplateRow_(t) ) add('jrl-row-unparsed', at);
           continue;
         }
         if ( t.charAt(0) === 'r' || 'id' in row ) continue;    // a remove names its row by id only
@@ -1403,17 +1413,33 @@ foam.CLASS({
       });
     },
 
+    function isTemplateRow_(text) {
+      /**
+       * A row with {name} placeholders that a setup script fills in before the
+       * journal is read (foam3 tools/setup/adminUser.jrl: "id":{adminUserId}).
+       * It parses once each placeholder is a value.
+       */
+      if ( ! /\{[A-Za-z_]\w*\}/.test(text) ) return false;
+      return !! this.parseFoamRow_(text.replace(/\{[A-Za-z_]\w*\}/g, '0')).row;
+    },
+
     function hasEmptyId_(cls, row) {
-      /** Whether FOAM would give this row an empty id; a class may compute its id from other properties. */
-      try {
-        var args = Object.assign({}, row);
-        delete args['class'];
-        var id = cls.create(args, foam.__context__).id;
-        return id === '' || id === 0 || id == null;
-      } catch (e) {
-        require('../logError').logLspError('id of a ' + cls.id + ' journal row', e);
-        return false;
+      /**
+       * Whether FOAM would give this row an empty id, read from the class's id
+       * axiom without creating an object (a create runs init, factories and
+       * assertions). An id FOAM computes (expression, factory, getter) or a
+       * non-empty default counts as not empty: this cannot tell, so it stays quiet.
+       */
+      var ID = cls.ID;
+      if ( ID && Array.isArray(ID.propNames) ) {                       // ids: [ 'a', 'b' ]
+        return ID.propNames.every(function(n) { return ! ( n in row ); });
       }
+      var prop = ID || cls.getAxiomByName('id');
+      if ( ! prop || ! prop.name ) return false;
+      if ( prop.name in row ) return false;
+      if ( prop.expression || prop.factory || prop.getter ) return false;
+      var v = prop.value;
+      return v === undefined || v === null || v === '' || v === 0;
     },
 
     function validateEntryProperties_(entry, cls, classId, lines, startLine, endLine, diags, deprecated) {

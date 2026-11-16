@@ -46,6 +46,7 @@ var src = [
   "    function bare(a, b) { return a; },",
   "    function none() { return 1; },",
   "    { name: 'typedArgs', args: 'String s, Int i', code: function(s, i) {} },",
+  "    { name: 'genericArgs', args: 'Map<String, Object> m, Int i', code: function(m, i) {} },",
   "    { name: 'objectArgs', args: [ { name: 's', type: 'String' } ], code: function(s) {} },",
   "    { name: 'halfTyped', args: [ { name: 's' } ], code: function(s) {} }",
   "  ]",
@@ -61,6 +62,7 @@ test(named(ds, 'typing-untyped-args', 'bare').length === 1, 'typing: a plain fun
 test(named(ds, 'typing-untyped-args', 'none').length === 0, 'typing: a function with no arguments is fine');
 test(named(ds, 'typing-untyped-args', 'typedArgs').length === 0, "typing: args: 'Type name, ...' is typed");
 test(named(ds, 'typing-untyped-args', 'objectArgs').length === 0, 'typing: args with a type each are typed');
+test(named(ds, 'typing-untyped-args', 'genericArgs').length === 0, "typing: a comma inside Map<String, Object> does not split an argument");
 test(named(ds, 'typing-untyped-args', 'halfTyped').length === 1, 'typing: an arg with no type is flagged');
 test(named(ds, 'typing-import-no-type', 'plainImport').length === 1, 'typing: a string import has no type');
 test(named(ds, 'typing-import-no-type', 'typedImport').length === 0, 'typing: an import with a type is fine');

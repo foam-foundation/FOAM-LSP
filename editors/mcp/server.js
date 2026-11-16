@@ -486,7 +486,15 @@ class FoamLSPClient {
       // EXPERIMENT (FTypechecks): keep an LSP running, so the check after an edit
       // finds the types file written. A branch switch (HEAD change) restarts it at
       // once. Not after a failed boot: that would loop.
-      if ( this.keepWarm && wasReady ) setTimeout(function() { if ( ! this.child ) this.start(); }.bind(this), 2000);
+      // At most 5 restarts in 10 minutes: an LSP that keeps dying is left stopped.
+      const now = Date.now();
+      this._restarts = ( this._restarts || [] ).filter(function(t) { return now - t < 600000; });
+      if ( this.keepWarm && wasReady && this._restarts.length < 5 ) {
+        this._restarts.push(now);
+        setTimeout(function() { if ( ! this.child ) this.start(); }.bind(this), 2000);
+      } else if ( this.keepWarm && wasReady ) {
+        log('LSP exited 5 times in 10 minutes; not restarting it until the next request');
+      }
     }.bind(this));
 
     // Kick off initialize.
@@ -955,9 +963,12 @@ function toolContent(text) {
 }
 
 function main() {
-  // Claude Code sets CLAUDE_PROJECT_DIR in every MCP server it starts: the session's
-  // project root (a worktree's own root in a worktree), not the working directory.
-  const projectRoot = process.env.FOAM_PROJECT_ROOT || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  // The working directory, as before, when it is a FOAM app (it has a pom.js). Else
+  // CLAUDE_PROJECT_DIR, which Claude Code sets in every MCP server it starts: the
+  // session's project root (a worktree's own root in a worktree).
+  const cwdIsApp = fs.existsSync(path.join(process.cwd(), 'pom.js'));
+  const projectRoot = process.env.FOAM_PROJECT_ROOT ||
+    ( cwdIsApp ? process.cwd() : process.env.CLAUDE_PROJECT_DIR ) || process.cwd();
   log('project root:', projectRoot);
 
   // No eager boot — whenReady() spawns the LSP on the first foam tool call.

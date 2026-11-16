@@ -1362,6 +1362,12 @@ foam.CLASS({
       return captured;
     },
 
+    function getIndexedClassIds() {
+      /** Every class id the POM file index holds: loaded here or not (test and other flagged classes). */
+      if ( ! this.fileIndex_ ) this.buildFileIndex();
+      return Object.keys(this.fileIndex_);
+    },
+
     function getFilePath(classId) {
       if ( ! this.fileIndex_ ) this.buildFileIndex();
       var entry = this.fileIndex_[classId];

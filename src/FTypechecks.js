@@ -97,8 +97,10 @@ function create(opts) {
   }
 
   function request() {
-    try { return JSON.parse(fs.readFileSync(path.join(work, 'generator.json'), 'utf8')); }
-    catch ( e ) { return null; }          // check.js has not run yet
+    var file = path.join(work, 'generator.json');
+    if ( ! fs.existsSync(file) ) return null;          // check.js has not run yet
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch ( e ) { log('[FTypechecks] cannot read ' + file + ': ' + e.message); return null; }
   }
   function readList(file) {
     try { return file ? JSON.parse(fs.readFileSync(file, 'utf8')) : []; }
@@ -170,7 +172,8 @@ function create(opts) {
     var out = path.join(work, 'app.d.ts.' + process.pid + '.tmp');
     var r;
     try {
-      r = TypesFile.generate({ out: out, level: g.level, 'package': g.style, log: log });
+      r = TypesFile.generate({ out: out, level: g.level, 'package': g.style, log: log,
+        declared: opts.index ? opts.index.getIndexedClassIds() : [] });
       fs.renameSync(out, path.join(work, 'app.d.ts'));
       put(path.join(work, 'report.json'), JSON.stringify({
         'package': g.style,

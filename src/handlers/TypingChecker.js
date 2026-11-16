@@ -162,10 +162,11 @@ foam.CLASS({
 
     function argsTyped_(args, count) {
       /** Whether args (an array of Arg specs, or 'Type a, Type b') types at least count arguments. */
-      if ( typeof args === 'string' ) args = args.split(',');
+      // 'Map<String, Object> m, Int i': split on the commas outside <...>.
+      if ( typeof args === 'string' ) args = args.split(/,(?![^<>]*>)/);
       if ( ! Array.isArray(args) || args.length < count ) return false;
       return args.every(function(a) {
-        if ( typeof a === 'string' ) return /^\s*\S+\s+\S+\s*$/.test(a);    // 'Type name'
+        if ( typeof a === 'string' ) return /^\s*\S.*\s[A-Za-z_$][\w$]*\s*$/.test(a);    // 'Type name', the type may hold spaces
         return !! ( a && a.type );
       });
     },

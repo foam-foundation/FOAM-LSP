@@ -147,6 +147,12 @@ process.exit = realExit;
 test(! exited && process.exitCode !== 3, 'parseFileModels: a script calling process.exit does not stop the server');
 test(scriptModels.length === 2 && scriptModels[0].name === 'Runner', 'parseFileModels: the script still gives its model');
 test(scriptModels[1] && scriptModels[1].name === 'NoTimer', 'parseFileModels: a timer the script sets is a stand-in, never run');
+var guarded = cache.parseFileModels(
+  "foam.CLASS({ package: 'test.script', name: typeof require === 'undefined' && typeof module === 'undefined' ? 'BrowserPath' : 'NodePath' });\n" +
+  "process.argv.push('leak');");
+test(guarded.length === 1 && guarded[0].name === 'BrowserPath', 'parseFileModels: a typeof require guard takes the browser path');
+var next = cache.parseFileModels("foam.CLASS({ package: 'test.script', name: process.argv.length === 0 ? 'Clean' : 'Leaked' });");
+test(next.length === 1 && next[0].name === 'Clean', 'parseFileModels: what one file does to the stand-ins does not reach the next');
 
 // ENUM
 var enumText = 'foam.ENUM({ package: ' + Q + 'test' + Q + ', name: ' + Q + 'Status' + Q + ', values: [{ name: ' + Q + 'ACTIVE' + Q + ' }] })';

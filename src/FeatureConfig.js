@@ -27,6 +27,7 @@ var DEFAULTS = Object.freeze({
   'diagnostics.pom': true,
   'diagnostics.cssSyntax': true,
   'diagnostics.typing': false,
+  'diagnostics.journalRows': true,
   'hints.i18nMissingLanguage': true,
   'completion': true,
   'completion.autoRequires': true,

@@ -473,6 +473,31 @@ test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","accountNo":"1"}
 test(codes(jrlHandler.handleDiagnostics('r({"class":"' + M + '"})\nr({"class":"' + M + '"})', '')).indexOf('jrl-rows-no-id') === -1,
   'row shape: removes are not counted');
 
+// Review follow-ups: no false alarms on these.
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1}) // it\'s "ok" `x`', '')).length === 0,
+  'row shape: a comment with quotes after the row is fine');
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + M + '","id":1}),', '')).length === 0,
+  'row shape: a , after the row is fine (FOAM drops the last character)');
+test(codes(jrlHandler.handleDiagnostics('p({\n  "class":"' + M + '",\n  "id":{adminUserId}\n})', '')).length === 0,
+  'row shape: a template row with {name} placeholders is not flagged');
+test(! jrlHandler.handleDiagnostics('p({"class":"{package}.test.{Model}Test","id":"x"})', '').some(function(d) { return /Unknown class/.test(d.message); }),
+  'JRL diagnostics: a placeholder class name in a template is not an unknown class');
+test(codes(jrlHandler.handleDiagnostics('p({\r\n  "class": "' + M + '",\r\n  "id": 1\r\n})\r\n', '')).length === 0,
+  'row shape: CRLF line ends are read like LF');
+var created = 0;
+foam.CLASS({ package: 'foam.parse.lsp.test', name: 'JrlCountsCreates', properties: [ { class: 'Long', name: 'id' }, 'v' ],
+  methods: [ function init() { created++; } ] });
+foam.CLASS({ package: 'foam.parse.lsp.test', name: 'JrlComputedId', properties: [ 'a', { name: 'id', expression: function(a) { return a; } } ] });
+var CC = 'foam.parse.lsp.test.JrlCountsCreates';
+test(codes(jrlHandler.handleDiagnostics('p({"class":"' + CC + '","v":1})\np({"class":"' + CC + '","v":2})', '')).indexOf('jrl-rows-no-id') !== -1 && created === 0,
+  'row shape: the no-id rule reads the id axiom and creates no object');
+test(codes(jrlHandler.handleDiagnostics('p({"class":"foam.parse.lsp.test.JrlComputedId","a":1})\np({"class":"foam.parse.lsp.test.JrlComputedId","a":2})', '')).indexOf('jrl-rows-no-id') === -1,
+  'row shape: an id FOAM computes (expression) is not "no id"');
+var rowsOff = foam.parse.lsp.handlers.JrlHandler.create({ index: index, featureConfig: { enabled: function(f) { return f !== 'diagnostics.journalRows'; } } });
+var offDs = rowsOff.handleDiagnostics('p({"class":"' + M + '","id":1,\n  "accountNo":"123"})\np({"class":"com.nonexistent.FakeClass9","id":2})', '');
+test(codes(offDs).indexOf('jrl-row-split') === -1 && offDs.some(function(d) { return /Unknown class/.test(d.message); }),
+  'row shape: diagnostics.journalRows off drops the row rules, the unknown-class check stays');
+
 // ========== JRL Nested Class Context ==========
 
 

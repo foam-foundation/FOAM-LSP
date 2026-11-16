@@ -446,7 +446,9 @@ function start() {
       // in a try/catch so one bad block doesn't skip the rest.
       // foam.CLASS records foam.sourceFile as the class's source file.
       var prevSourceFile = foam.sourceFile;
-      foam.sourceFile = uriToPath_(uri);
+      try { foam.sourceFile = uriToPath_(uri); }
+      catch ( e ) { require('./logError').logLspError('reindex: source path of ' + uri, e); }
+      try {
       for ( var i = 0 ; i < models.length ; i++ ) {
         var m = models[i];
         try {
@@ -459,7 +461,9 @@ function start() {
             (m.package ? m.package + '.' : '') + m.name + ': ' + e.message);
         }
       }
-      foam.sourceFile = prevSourceFile;
+      } finally {
+        foam.sourceFile = prevSourceFile;
+      }
 
       // Clear FoamIndex caches for each class defined in this file and
       // collect them for the targeted re-analyze pass below.
@@ -539,9 +543,11 @@ function start() {
     var uri = 'file://' + file;
     var doc = documents[uri];
     if ( doc && doc.text === text && ftc.isCurrent(file) ) return;
+    // Re-register from the disk text, then put an open document's own text
+    // back: an editor's unsaved edits stay the document's text.
     documents[uri] = { text: text, version: doc ? doc.version + 1 : 0 };
-    reindexFile(uri);
-    if ( ! doc ) delete documents[uri];
+    try { reindexFile(uri); }
+    finally { if ( doc ) documents[uri] = doc; else delete documents[uri]; }
   }
 
   var affectedReanalyzeTimer_ = null;
@@ -713,7 +719,7 @@ function start() {
         // EXPERIMENT: FTypechecks. Off unless a foam-check.config.json is found.
         ftc = FTypechecks.create({
           root: wsRoot, log: function(m) { console.error(m); },
-          cache: fileModelCache, typingChecker: diagnosticsHandler.typingChecker, jrlHandler: jrlHandler
+          cache: fileModelCache, typingChecker: diagnosticsHandler.typingChecker, jrlHandler: jrlHandler, index: index
         });
         featureConfig = FeatureConfig.load({
           rootPath:        wsRoot,
@@ -739,6 +745,7 @@ function start() {
         diagnosticsHandler.clientDiagnosticCaps = pubDiagCaps;
         workspaceAnalyzer.diagnosticsHandler.clientDiagnosticCaps = pubDiagCaps;
         jrlHandler.clientDiagnosticCaps = pubDiagCaps;
+        jrlHandler.featureConfig        = featureConfig;
         // The pull lane (textDocument/diagnostic) has its own capability
         // block, and LSP 3.18 lets a client declare relatedInformation /
         // tagSupport there. A client may pull with a different consumer than

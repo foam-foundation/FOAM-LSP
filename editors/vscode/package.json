@@ -50,6 +50,11 @@
           "default": true,
           "description": "Diagnostics for css: text the CSS grammar cannot parse: a missing ';', a stray '}', a '//' line, an unclosed string or comment. Takes effect after a server restart."
         },
+        "foam.features.diagnostics.journalRows": {
+          "type": "boolean",
+          "default": true,
+          "description": "Journal (.jrl) rows FOAM's server reader cannot use: a row split over lines, a line that is no row, a row that does not parse, text after a row's closing brace, two or more rows of a class with no id. Takes effect after a server restart."
+        },
         "foam.features.diagnostics.typing": {
           "type": "boolean",
           "default": false,

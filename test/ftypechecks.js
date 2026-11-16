@@ -44,9 +44,11 @@ fs.writeFileSync(path.join(work, 'generator.json'), JSON.stringify({
 }));
 
 var diag = foam.parse.lsp.handlers.DiagnosticsHandler.create({ index: h.index, cache: h.cache });
+// A class the file index holds that this process did not load (a test class).
+var indexStub = { getIndexedClassIds: function() { return [ 'ftc.test.unloaded.NotLoaded', 'ftc.test.Thing', 'bad..id' ]; } };
 var jrl  = foam.parse.lsp.handlers.JrlHandler.create({ index: h.index });
 var logs = [];
-var ftc  = FTypechecks.create({ root: dir, log: function(m) { logs.push(m); }, cache: h.cache, typingChecker: diag.typingChecker, jrlHandler: jrl });
+var ftc  = FTypechecks.create({ root: dir, log: function(m) { logs.push(m); }, cache: h.cache, typingChecker: diag.typingChecker, jrlHandler: jrl, index: indexStub });
 
 test(ftc != null, 'ftypechecks: on in a workspace with foam-check.config.json');
 test(FTypechecks.create({ root: os.tmpdir() }) === null, 'ftypechecks: off without one');
@@ -55,6 +57,8 @@ test(ftc && ftc.write([ path.join(src, 'Thing.js') ]) === true, 'ftypechecks: wr
 var read = function(f) { try { return JSON.parse(fs.readFileSync(path.join(work, f), 'utf8')); } catch (e) { return null; } };
 var dts = fs.existsSync(path.join(work, 'app.d.ts')) ? fs.readFileSync(path.join(work, 'app.d.ts'), 'utf8') : '';
 test(/Thing/.test(dts) && /label/.test(dts), 'ftypechecks: app.d.ts declares the class and its properties');
+test(/namespace unloaded \{\s*const NotLoaded: any;/.test(dts), 'ftypechecks: a class the index holds but FOAM did not load is named, as any');
+test(! /namespace\s+\{/.test(dts), 'ftypechecks: an id with an empty part is left out');
 
 var rep = read('report.json') || {};
 var style = function(member, rule) { return ( rep.style || [] ).some(function(s) { return s.cls === 'ftc.test.Thing' && s.member === member && s.rule === rule; }); };

@@ -14,7 +14,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | File | Purpose | Key Functions |
 |---|---|---|
 | `logError.js` | The one logging idiom for a degraded-but-not-fatal failure — see "A fallback leaves a trace" below | `logLspError(context, err)` |
-| `FileModelCache.js` | Eval-intercept model extraction + caching | `getModels()`, `getModelAt()`, `parseFileModels()`. The file's top-level code runs in this process, so `process`, `require` and timers are stand-ins (`SCRIPT_STANDINS`): a test runner in a source folder ending in `process.exit(...)` used to stop the server when it was read. `sourceLine_` and `sourceOffset_` on each model come from `FileClassifier.significantCalls()`; the offset only breaks ties when `FoamClassGrammar.modelEntryFor` pairs a model with its extent by name |
+| `FileModelCache.js` | Eval-intercept model extraction + caching | `getModels()`, `getModelAt()`, `parseFileModels()`. The file's top-level code runs in this process, so `process` and timers are stand-ins and `require`/`module` read as absent (`scriptStandins_`, fresh per file): a test runner in a source folder ending in `process.exit(...)` used to stop the server when it was read. Not a sandbox: `globalThis` stays reachable. `sourceLine_` and `sourceOffset_` on each model come from `FileClassifier.significantCalls()`; the offset only breaks ties when `FoamClassGrammar.modelEntryFor` pairs a model with its extent by name |
 | `FoamIndex.js` | Query layer over FOAM registry | `getAllClassIds()`, `getProperties()`, `getFilePath()`, `getClassLine()`, `getSymbolPosition()`, `resolveSymbol()`, `buildFileIndex()`, `getRefinements()`, `getRelationshipProperty()`, `getDeprecation()` (the `deprecated:` marker every surface reads — see "Diagnostic tags and related locations"), `classDeclared()` (registered, in the file index, or a hand-written `.java` under a `src/` folder: what a journal row may name) |
 | `FoamClassGrammar.js` | Grammar parser: completion `sug()` plus the single-parse position harvest | Skip-and-match pattern, dynamic `sug()` from registry; `collectAxiomPositions()`, `collectModelExtents()`, `modelEntryFor()`, `collectRelationshipProperties()` — see "Grammar-harvested positions" |
 | `CursorAnalyzer.js` | Shared text/position utilities + regex fallback | `offsetToPosition()`, `offsetMapper()` (many offsets, one text), `resolveClassId()`, `parseRequires()`, `findCreateContext()` |
@@ -434,7 +434,13 @@ ignored. `addRowShapeDiags_` reports what the server cannot use, one code each
 The unknown-class check accepts any class `FoamIndex.classDeclared` knows: a
 test or Java-only class is valid on the server even though this process never
 loaded it (219 of foam3's journal class names were flagged before). Over
-foam3's 325 journals the row-shape rules find 3 rows, all real.
+foam3's journals the row-shape rules find 3 real rows (a key after the `}`,
+two rows on one line, a missing comma). A row with `{name}` placeholders that a
+setup script fills in (`tools/setup/*.jrl`) is a template, not flagged. The
+no-id rule reads the class's id axiom (`ID.propNames` for `ids:`, else the id
+property's expression/factory/getter/default) and never creates an object.
+Gated by `diagnostics.journalRows` (default on). `evalJrlObject_` evaluates a
+row's text: the `journal-rows` lint check does that for every journal it reads.
 
 ### Adding to the grammar
 1. Add rule in `FoamClassGrammar.buildGrammar_()`
@@ -535,6 +541,7 @@ all (`server.js:613-635`).
 | `diagnostics.java` | `true` | Java-block validation diagnostics |
 | `diagnostics.i18n` | `true` | Hardcoded-display-string diagnostic |
 | `diagnostics.pom` | `true` | Entry-level pom.js diagnostics (`PomValidator.validateEntries` via `DiagnosticsHandler.pomDiagnostics_`) |
+| `diagnostics.journalRows` | `true` | Journal row-shape diagnostics (`JrlHandler.addRowShapeDiags_`: `jrl-row-split`, `jrl-not-a-row`, `jrl-row-unparsed`, `jrl-row-trailing`, `jrl-rows-no-id`). The unknown-class and unknown-key checks stay on |
 | `diagnostics.typing` | `false` | Typing style warnings and their quick fixes (`TypingChecker`). A workspace with a `foam-check.config.json` turns it on (`projectDefaults`, below); `foam-lsp.json` or the client can still turn it off |
 | `diagnostics.cssSyntax` | `true` | `CSS syntax:` diagnostics from the `foam.u2.parse.CSSParser` grammar over `css:` (`DiagnosticsHandler.validateCSSSyntax_`); the token, raw-colour and unused-`^class` checks read the same parse and stay on |
 | `hints.i18nMissingLanguage` | `true` | Every unsolicited offer to machine-translate: the missing-translation HINT, code actions C/D, AND the `codeLens.i18n` lens (clicking it translates) |

@@ -14,12 +14,14 @@
 // FTypechecks plugin (scripts/gen-types.js), which keeps a copy for the case
 // with no LSP running.
 //
-//   generate({ out, level, package, log }) ->
+//   generate({ out, level, package, log, declared }) ->
 //     { classes, lines, asserts, shapes }
 //   level    'strict' (default) or 'foam': how much plain-JavaScript typing
 //   package  class id prefix of the app: its classes get a shape hash
 //            (a hash of their generated types: a change means files that use
 //            the class may break) and its failed FOAM assertions are kept
+//   declared class ids source files declare (FoamIndex.getIndexedClassIds):
+//            one this process did not load (a test class) is written as `any`
 //
 // Plain Node module (no FOAM boot cost of its own), like FTypechecks.js.
 //
@@ -106,6 +108,19 @@ function generate_(opts, log) {
   }
   console.assert = realAssert; console.error = realError;
   const knownSet = new Set(known);
+  // A class a source file declares that this FOAM did not load (a test class, a
+  // Java-only class): its name is written as `any`, so code naming it is not an
+  // unknown name. Nothing about it is checked.
+  for ( const id of opts.declared || [] ) {
+    const parts = id.split('.');
+    if ( knownSet.has(id) || parts.length < 2 || ! parts.every(p => /^[A-Za-z_$][\w$]*$/.test(p)) ) continue;
+    let node = tree, taken = false;
+    for ( const p of parts.slice(0, -1) ) {
+      if ( node[p] && ( node[p].__cls || node[p].__any ) ) { taken = true; break; }
+      node = node[p] = node[p] || {};
+    }
+    if ( ! taken && ! node[parts[parts.length - 1]] ) node[parts[parts.length - 1]] = { __any: true };
+  }
 
   const q = s => JSON.stringify(s);
 
@@ -374,6 +389,7 @@ function generate_(opts, log) {
     for ( const key of Object.keys(node).sort() ) {
       const v = node[key];
       if ( v.__cls ) { out.push(...emitClass(key, v.__cls, ind)); continue; }
+      if ( v.__any ) { out.push(`${ind}const ${seg(key)}: any;`); continue; }
       out.push(`${ind}namespace ${seg(key)} {`, ...emit(v, ind + '  ', obj && Object.getOwnPropertyDescriptor(obj, key) && Object.getOwnPropertyDescriptor(obj, key).value), `${ind}}`);
     }
     return out;
