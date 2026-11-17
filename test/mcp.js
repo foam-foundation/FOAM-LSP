@@ -280,4 +280,18 @@ var lintSyncDone = Promise.resolve();
   lintSyncDone = Promise.all([ lintSyncDone, syncDone ]);
 }
 
+// foam_permissions: a call with no symbol, and a symbol foam/byName cannot
+// resolve, each say why instead of returning an empty answer.
+{
+  var permStub = { request: async function() { return null; } };
+  var permDone = mcp.callTool(permStub, ROOT, 'foam_permissions', {})
+    .then(function() { test(false, 'foam_permissions: no symbol should throw'); },
+          function(e) { test(/provide "symbol"/.test(e.message), 'foam_permissions: no symbol asks for one: ' + e.message); })
+    .then(function() { return mcp.callTool(permStub, ROOT, 'foam_permissions', { symbol: 'no.such.Class' }); })
+    .then(function() { test(false, 'foam_permissions: unknown symbol should throw'); },
+          function(e) { test(e.message === 'could not resolve symbol: no.such.Class',
+            'foam_permissions: unknown symbol names it: ' + e.message); });
+  lintSyncDone = Promise.all([ lintSyncDone, permDone ]);
+}
+
 module.exports = { done: lintSyncDone };

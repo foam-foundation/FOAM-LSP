@@ -246,7 +246,7 @@ Who may see a property is set by flags that often sit on a superclass or an inte
 - An inlay hint marks a re-declared property whose flag is set elsewhere (see Inlay Hints)
 - The MCP tool `foam_permissions` (`{ symbol }`, a class or `Class.member`) lists every check the class drives, with the exact names to grant: flagged properties (read / write / update / column, each with the class that sets the flag), sections marked `permissionRequired` (`<class>.section.<name>`), and actions with `availablePermissions` / `enabledPermissions` / `confirmationRequiredPermissions`
 
-Names follow the runtime checks: the concrete class's short name and the member name, lowercased. `User.created` needs `user.ro.created` or `user.rw.created` to be read; on a subclass `Admin` it needs `admin.ro.created`.
+Names are a class's short name and the member name, lowercased: the object's class for find, select and the detail view, the declaring class for predicates, the table's `of` for columns. `User.created` needs `user.ro.created` or `user.rw.created` to be read; on a subclass `Admin` it needs `admin.ro.created`. On an interface the class part is `<class>`, the implementing class: `CreatedByAware.createdBy` shows `<class>.column.createdby`.
 
 ### New Class
 - `foam.scaffold.newClass` builds a new FOAM class file plus its `pom.js` `files:` entry as a single WorkspaceEdit — one undo step, nothing written server-side

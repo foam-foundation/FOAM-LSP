@@ -468,6 +468,40 @@ section('Hover — permission flags (foam3 #5260)');
   test(surface && surface.properties.some(function(p) { return p.name === 'created'; }) &&
     ! surface.properties.some(function(p) { return p.name === 'firstName'; }),
     'the class surface lists flagged properties only');
+
+  // UserLifecycleTicket inherits createdBy from Ticket without re-declaring
+  // it; a row of it is checked under its own short name, not Ticket's.
+  var sub = index.getPermissions('foam.core.auth.UserLifecycleTicket', 'createdBy') || [];
+  var subWrite = sub.filter(function(p) { return p.access === 'write'; })[0];
+  test(subWrite && subWrite.permissions.join() === 'userlifecycleticket.rw.createdby' &&
+    subWrite.from === 'foam.core.ticket.Ticket',
+    'a subclass is named by its own short name, the flag by its parent: ' + JSON.stringify(sub));
+
+  // No object's class is an interface, so CreatedByAware's name is never
+  // checked; the implementing class takes the placeholder's place.
+  var iface = index.getPermissions('foam.core.auth.CreatedByAware', 'createdBy');
+  test(iface && iface[0].permissions.join() === '<class>.column.createdby',
+    'an interface prints <class>, not its own name: ' + JSON.stringify(iface));
+  // Ruled is an abstract class: a predicate on a subclass that does not
+  // re-declare priority checks ruled.ro.priority, so the name stays.
+  var abs = index.getPermissions('foam.core.ruler.Ruled', 'priority');
+  test(abs && abs[0].permissions[0] === 'ruled.ro.priority',
+    'an abstract class keeps its own name: ' + JSON.stringify(abs));
+
+  // A flag set by a refinement has no declaring class or interface.
+  var refined = index.getPermissions('foam.core.auth.User', 'twoFactorEnabled');
+  test(refined && refined.length && refined[0].from === null,
+    'a flag set by a refinement reports from: null: ' + JSON.stringify(refined));
+
+  var flow = index.getPermissionSurface('foam.core.reflow.Flow');
+  test(flow && flow.sections.some(function(s) { return s.permission === 'flow.section.scriptsection'; }),
+    'a permissionRequired section is listed as <class>.section.<name>: ' + JSON.stringify(flow && flow.sections));
+
+  // GroupUserUsersRelationship is a foam.dao.Relationship in the registry,
+  // not a class: it has no axioms, and asking must not throw.
+  test(index.getPermissionSurface('foam.core.auth.GroupUserUsersRelationship') === null &&
+    index.getPermissions('foam.core.auth.GroupUserUsersRelationship', 'sourceId') === null,
+    'a relationship id answers null instead of throwing');
 })();
 
 

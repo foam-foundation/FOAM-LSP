@@ -421,14 +421,22 @@ re-declaration in a subclass keeps the parent's values
 answer; no source file is read.
 
 `FoamIndex.getPermissions(classId, prop)` returns
-`[{ access, flag, permissions, from }]`. The names follow the runtime checks:
-the CONCRETE class's short name and the property name, lowercased
-(`PermissionedPropertyDAO`, `Element2`'s controller-mode slot,
-`TableComponentView`): read is `x.ro.p` or `x.rw.p`, write and update are
-`x.rw.p`, column is `x.column.p`. `from` is the nearest class up the extends
-chain whose own declaration sets the flag, an implemented interface counting
-at its implementor's level (`CreatedByAware` sets `columnPermissionRequired`
-on `createdBy`); a flag set only by a refinement leaves `from` null.
+`[{ access, flag, permissions, from }]`. The names are a class's short name
+and the property name, lowercased: read is `x.ro.p` or `x.rw.p`, write and
+update are `x.rw.p`, column is `x.column.p`. Which class `x` is depends on the
+check: the object's class for find, select and the detail view
+(`PermissionedPropertyDAO`, `Element2`'s controller-mode slot), the declaring
+class for predicates (`AbstractPropertyInfo.authorize`), the table's `of` for
+columns and filters (`TableComponentView`, `FilterView`). On an interface `x`
+is the placeholder `<class>`, since no object's class is an interface and
+`createdbyaware.column.createdby` would match nothing; an abstract class keeps
+its name, which a predicate or a table of that class does check. A registry id
+that is a `foam.dao.Relationship`, not a class, answers null. `from` is the
+nearest class up the extends chain whose own declaration sets the flag, an
+implemented interface counting at its implementor's level (`CreatedByAware`
+sets `columnPermissionRequired` on `createdBy`); it is null when no class or
+directly implemented interface declares it (a refinement such as
+`User.twoFactorEnabled`, a relationship such as `User.notificationSettings`).
 
 Readers: hover (`getPropertyDoc`), the inlay hint (only flags not written on
 the declaration in view), the `permissioned` token modifier

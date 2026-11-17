@@ -874,26 +874,41 @@ foam.CLASS({
        * re-declares the property keeps the parent's flags, so the source in
        * front of the reader often does not show them.
        *
-       * The permission names are built the way the runtime checks them:
-       * the CONCRETE class's short name and the property name, both
-       * lowercased. User.created needs 'user.ro.created' or 'user.rw.created'
-       * to be read (PermissionedPropertyDAO, Element2's controller-mode
-       * slot), 'user.rw.created' to be written, and 'user.column.created' to
-       * show as a table column (TableComponentView). A subclass Admin of User
-       * needs 'admin.ro.created', not the user one.
+       * The permission names are a class's short name and the property
+       * name, both lowercased. Which class depends on the check: the
+       * object's own class for find, select and the detail view
+       * (PermissionedPropertyDAO, Element2's controller-mode slot), the
+       * declaring class for a predicate (AbstractPropertyInfo.authorize),
+       * and the table's `of` for columns and filters (TableComponentView,
+       * FilterView). User.created needs 'user.ro.created' or
+       * 'user.rw.created' to be read, 'user.rw.created' to be written, and
+       * 'user.column.created' to show as a column; a subclass Admin of User
+       * needs 'admin.ro.created' to be read on an Admin row.
+       *
+       * An interface is never an object's class, so a name built from it
+       * matches no check: CreatedByAware.createdBy would print
+       * 'createdbyaware.column.createdby', and granting it changes nothing.
+       * On an interface the class part is the placeholder '<class>', which
+       * stands for the implementing class: '<class>.column.createdby' is
+       * 'notification.column.createdby' on a Notification. An abstract
+       * class keeps its own name, since a predicate or a table of that
+       * class does check it.
        *
        * Returns [{ access, flag, permissions, from }] in read, write/update,
        * column order. `access` is 'read' | 'write' | 'update' | 'column';
        * `flag` is the declaration key that asks for it; `permissions` lists the names, any one of which grants it; `from` is
-       * the class whose declaration sets the flag (null when only a
-       * refinement does).
+       * the class whose declaration sets the flag (null when no class or
+       * directly implemented interface declares it: a refinement, a
+       * relationship, or a flag that arrives another way).
        */
       var cls = this.getClass(classId);
-      if ( ! cls ) return null;
+      // 32 registry ids are foam.dao.Relationship objects, not classes:
+      // foam.core.auth.GroupUserUsersRelationship has no axioms to ask.
+      if ( ! cls || ! cls.getAxiomByName ) return null;
       var prop = cls.getAxiomByName(propName);
       if ( ! prop || ! foam.lang.Property.isInstance(prop) ) return null;
 
-      var stem = cls.name.toLowerCase() + '.';
+      var stem = this.permissionStem_(classId, cls);
       var name = propName.toLowerCase();
       var rw   = stem + 'rw.' + name;
       var self = this;
@@ -939,9 +954,9 @@ foam.CLASS({
        * the class is not registered.
        */
       var cls = this.getClass(classId);
-      if ( ! cls ) return null;
+      if ( ! cls || ! cls.getAxiomsByClass ) return null;
       var self = this;
-      var stem = cls.name.toLowerCase() + '.';
+      var stem = this.permissionStem_(classId, cls);
 
       var properties = [];
       cls.getAxiomsByClass(foam.lang.Property).forEach(function(p) {
@@ -966,6 +981,12 @@ foam.CLASS({
       });
 
       return { classId: classId, properties: properties, sections: sections, actions: actions };
+    },
+
+    function permissionStem_(classId, cls) {
+      /** The class part of a permission name, with its dot: 'user.' for
+       *  User, '<class>.' for an interface (see getPermissions). */
+      return ( this.isInterface(classId) ? '<class>' : cls.name.toLowerCase() ) + '.';
     },
 
     function flagSource_(classId, propName, flag) {
