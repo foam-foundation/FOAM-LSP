@@ -803,6 +803,8 @@ foam.CLASS({
       var md = '**' + propName + '** (`' + typeStr + '`)\n\n';
       var dep = this.getDeprecation(classId, propName);
       if ( dep ) md += this.deprecationLine(dep) + '\n\n';
+      var perms = this.getPermissions(classId, propName);
+      if ( perms ) md += this.permissionLine(perms) + '\n\n';
       if ( prop.documentation ) md += prop.documentation + '\n\n';
       if ( prop.value !== undefined && prop.value !== '' ) md += 'Default: `' + prop.value + '`\n';
       return md;
@@ -859,6 +861,166 @@ foam.CLASS({
     function deprecationLine(dep) {
       /** The hover line for a getDeprecation() answer: '**Deprecated.** Use X.' */
       return '**Deprecated.**' + ( dep.message ? ' ' + dep.message : '' );
+    },
+
+    function getPermissions(classId, propName) {
+      /**
+       * Which permissions a user needs to read, write or list one property,
+       * or null when it needs none. A property opts in with flags on its
+       * declaration — readPermissionRequired, writePermissionRequired,
+       * updatePermissionRequired (foam3 src/foam/lang/Property.js) and
+       * columnPermissionRequired (refined onto Property by
+       * src/foam/u2/table/UnstyledTableView.js) — and a subclass that
+       * re-declares the property keeps the parent's flags, so the source in
+       * front of the reader often does not show them.
+       *
+       * The permission names are a class's short name and the property
+       * name, both lowercased. Which class depends on the check: the
+       * object's own class for find, select and the detail view
+       * (PermissionedPropertyDAO, Element2's controller-mode slot), the
+       * declaring class for a predicate (AbstractPropertyInfo.authorize),
+       * and the table's `of` for columns and filters (TableComponentView,
+       * FilterView). User.created needs 'user.ro.created' or
+       * 'user.rw.created' to be read, 'user.rw.created' to be written, and
+       * 'user.column.created' to show as a column; a subclass Admin of User
+       * needs 'admin.ro.created' to be read on an Admin row.
+       *
+       * An interface is never an object's class, so a name built from it
+       * matches no check: CreatedByAware.createdBy would print
+       * 'createdbyaware.column.createdby', and granting it changes nothing.
+       * On an interface the class part is the placeholder '<class>', which
+       * stands for the implementing class: '<class>.column.createdby' is
+       * 'notification.column.createdby' on a Notification. An abstract
+       * class keeps its own name, since a predicate or a table of that
+       * class does check it.
+       *
+       * Returns [{ access, flag, permissions, from }] in read, write/update,
+       * column order. `access` is 'read' | 'write' | 'update' | 'column';
+       * `flag` is the declaration key that asks for it; `permissions` lists the names, any one of which grants it; `from` is
+       * the class whose declaration sets the flag (null when no class or
+       * directly implemented interface declares it: a refinement, a
+       * relationship, or a flag that arrives another way).
+       */
+      var cls = this.getClass(classId);
+      // 32 registry ids are foam.dao.Relationship objects, not classes:
+      // foam.core.auth.GroupUserUsersRelationship has no axioms to ask.
+      if ( ! cls || ! cls.getAxiomByName ) return null;
+      var prop = cls.getAxiomByName(propName);
+      if ( ! prop || ! foam.lang.Property.isInstance(prop) ) return null;
+
+      var stem = this.permissionStem_(classId, cls);
+      var name = propName.toLowerCase();
+      var rw   = stem + 'rw.' + name;
+      var self = this;
+      var out  = [];
+      function add(access, flag, permissions) {
+        out.push({ access: access, flag: flag, permissions: permissions,
+          from: self.flagSource_(classId, propName, flag) });
+      }
+
+      if ( prop.readPermissionRequired ) add('read', 'readPermissionRequired', [ stem + 'ro.' + name, rw ]);
+      // Property.js asserts the two are never both set; write covers update.
+      if ( prop.writePermissionRequired ) add('write', 'writePermissionRequired', [ rw ]);
+      else if ( prop.updatePermissionRequired ) add('update', 'updatePermissionRequired', [ rw ]);
+      if ( prop.columnPermissionRequired ) add('column', 'columnPermissionRequired', [ stem + 'column.' + name ]);
+      return out.length ? out : null;
+    },
+
+    function isPermissioned(prop) {
+      /** True when a Property axiom sets any flag getPermissions reads.
+       *  For callers that only need yes or no, per property, cheaply. */
+      return !! ( prop.readPermissionRequired || prop.writePermissionRequired ||
+        prop.updatePermissionRequired || prop.columnPermissionRequired );
+    },
+
+    function permissionLine(perms) {
+      /** The hover line for a getPermissions() answer:
+       *  '**Needs permission.** read: `user.ro.created` or `user.rw.created`' */
+      return '**Needs permission.** ' + perms.map(function(p) {
+        return p.access + ': ' + p.permissions.map(function(n) { return '`' + n + '`'; }).join(' or ') +
+          ( p.from ? ' (set on `' + p.from + '`)' : '' );
+      }).join('; ');
+    },
+
+    function getPermissionSurface(classId) {
+      /**
+       * Every permission check the class's own model drives, for the MCP
+       * foam_permissions tool: the properties getPermissions answers for,
+       * the sections marked permissionRequired (shown only with
+       * '<class>.section.<section>', foam3 src/foam/layout/SectionAxiom.js),
+       * and the actions that list permissions of their own
+       * (availablePermissions, enabledPermissions,
+       * confirmationRequiredPermissions, src/foam/lang/Action.js). Null when
+       * the class is not registered.
+       */
+      var cls = this.getClass(classId);
+      if ( ! cls || ! cls.getAxiomsByClass ) return null;
+      var self = this;
+      var stem = this.permissionStem_(classId, cls);
+
+      var properties = [];
+      cls.getAxiomsByClass(foam.lang.Property).forEach(function(p) {
+        var perms = self.getPermissions(classId, p.name);
+        if ( perms ) properties.push({ name: p.name, access: perms });
+      });
+
+      var sections = [];
+      if ( foam.layout && foam.layout.SectionAxiom ) {
+        cls.getAxiomsByClass(foam.layout.SectionAxiom).forEach(function(s) {
+          if ( s.permissionRequired ) sections.push({ name: s.name, permission: stem + 'section.' + s.name.toLowerCase() });
+        });
+      }
+
+      var actions = [];
+      cls.getAxiomsByClass(foam.lang.Action).forEach(function(a) {
+        var lists = {};
+        [ 'availablePermissions', 'enabledPermissions', 'confirmationRequiredPermissions' ].forEach(function(k) {
+          if ( a[k] && a[k].length ) lists[k] = a[k].slice();
+        });
+        if ( Object.keys(lists).length ) actions.push(Object.assign({ name: a.name }, lists));
+      });
+
+      return { classId: classId, properties: properties, sections: sections, actions: actions };
+    },
+
+    function permissionStem_(classId, cls) {
+      /** The class part of a permission name, with its dot: 'user.' for
+       *  User, '<class>.' for an interface (see getPermissions). */
+      return ( this.isInterface(classId) ? '<class>' : cls.name.toLowerCase() ) + '.';
+    },
+
+    function flagSource_(classId, propName, flag) {
+      /**
+       * The nearest class up classId's extends chain whose own declaration
+       * of propName sets `flag`, or null. An interface the class implements
+       * counts at its level: foam.core.auth.CreatedByAware declares
+       * createdBy with columnPermissionRequired, and every implementor gets
+       * that property from it.
+       */
+      var id = classId, guard = 0;
+      while ( id && guard++ < 32 ) {
+        var cls = this.getClass(id);
+        if ( ! cls || ! cls.model_ ) return null;
+        if ( this.declaresFlag_(cls, propName, flag) ) return id;
+        var impls = cls.model_.implements || [];
+        for ( var i = 0 ; i < impls.length ; i++ ) {
+          var implId = typeof impls[i] === 'string' ? impls[i] : impls[i] && impls[i].path;
+          var icls   = implId && this.getClass(implId);
+          if ( icls && this.declaresFlag_(icls, propName, flag) ) return implId;
+        }
+        id = cls.model_.extends;
+      }
+      return null;
+    },
+
+    function declaresFlag_(cls, propName, flag) {
+      /** True when cls's own model declares propName with `flag` set. */
+      var props = ( cls.model_ && cls.model_.properties ) || [];
+      for ( var i = 0 ; i < props.length ; i++ ) {
+        var p = props[i];
+        if ( p && typeof p === 'object' && p.name === propName ) return !! p[flag];
+      }
+      return false;
     },
 
     function propertyOwner_(classId, propName) {

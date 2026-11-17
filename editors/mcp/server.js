@@ -365,6 +365,15 @@ function toolSchemas() {
       }
     },
     {
+      name:        'foam_permissions',
+      description: "Which permissions a FOAM class asks for, and the exact names to grant: properties flagged readPermissionRequired / writePermissionRequired / updatePermissionRequired / columnPermissionRequired (set on the class or inherited), sections marked permissionRequired, and actions with availablePermissions / enabledPermissions / confirmationRequiredPermissions. Names follow the runtime's rule, e.g. User.created needs 'user.ro.created' or 'user.rw.created' to be read. Address by symbol: a class, or Class.member for one property or action.",
+      inputSchema: {
+        type:     'object',
+        required: ['symbol'],
+        properties: { symbol: target.symbol }
+      }
+    },
+    {
       name:        'foam_lint',
       description: 'Registration-completeness lint: classes missing from pom.js, Rules whose ruleGroup is undefined (rule never runs), StrategyReference entries pointing at missing classes / implementors invisible in the Rule-creation UI. Run after adding classes, rules, or jrl entries.',
       inputSchema: {
@@ -668,6 +677,31 @@ class FoamLSPClient {
   }
 }
 
+// foam/byName op 'permissions' -> one line per permission check. Each row
+// names the property, section or action, what it gates, and the permission
+// names any one of which grants it.
+function shapePermissions(r) {
+  if ( ! r ) return 'No permission data.';
+  const lines = [];
+  ( r.properties || [] ).forEach(function(p) {
+    p.access.forEach(function(a) {
+      lines.push('property ' + p.name + ' ' + a.access + ': ' + a.permissions.join(' | ') +
+        ( a.from ? '  (' + a.flag + ' on ' + a.from + ')' : '' ));
+    });
+  });
+  ( r.sections || [] ).forEach(function(s) {
+    lines.push('section ' + s.name + ' shown: ' + s.permission);
+  });
+  ( r.actions || [] ).forEach(function(a) {
+    [ [ 'availablePermissions', 'available' ], [ 'enabledPermissions', 'enabled' ],
+      [ 'confirmationRequiredPermissions', 'confirmation required' ] ].forEach(function(k) {
+      if ( a[k[0]] ) lines.push('action ' + a.name + ' ' + k[1] + ': ' + a[k[0]].join(' | '));
+    });
+  });
+  const who = r.member ? r.classId + '.' + r.member : r.classId;
+  return lines.length ? who + '\n' + lines.join('\n') : who + ': no permission checks.';
+}
+
 // --- Position resolution --------------------------------------------------
 
 // Returns { uri, line, character } for cursor-position addressing. Name
@@ -780,6 +814,12 @@ async function callTool(lsp, projectRoot, name, args) {
       // routes foam/byName to the same class-jump Case B does below); position
       // mode jumps to the property type at the cursor via the LSP method.
       return shapeLocations(await navRaw(lsp, projectRoot, args, 'typeDefinition', 'textDocument/typeDefinition'), projectRoot);
+    case 'foam_permissions': {
+      if ( ! args.symbol ) throw new Error('provide "symbol": a class id or Class.member');
+      const r = await lsp.request('foam/byName', { name: args.symbol, op: 'permissions' });
+      if ( r === null ) throw new Error('could not resolve symbol: ' + args.symbol);
+      return shapePermissions(r);
+    }
     case 'foam_type_hierarchy': {
       const hr = await hierarchyRaw(lsp, projectRoot, args, 'type');
       if ( ! hr ) return 'No type hierarchy at this target.';
@@ -1036,7 +1076,7 @@ function main() {
 module.exports = {
   normalizeUri, uriToPath, relPath, kindName, severityName,
   shapeLocations, shapeHover, shapeDocumentSymbols, shapeWorkspaceSymbols,
-  shapeDiagnostics, shapeItems, shapeCodeActions, shapeLintFindings,
+  shapeDiagnostics, shapeItems, shapeCodeActions, shapeLintFindings, shapePermissions,
   toolSchemas, resolvePos, callTool, FoamLSPClient,
   applyWorkspaceEdit, posToOffset, lintSyncUris, LSP_ENTRY
 };

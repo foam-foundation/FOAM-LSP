@@ -22,7 +22,9 @@ foam.CLASS({
     // token's type and modifier bits are positions in these arrays.
     TOKEN_TYPES: ['type', 'class', 'variable', 'keyword', 'string', 'comment', 'number', 'operator', 'method'],
     // The u2 modifiers are the intents of FoamClassGrammar.U2_BUILDER_CALLS.
-    TOKEN_MODIFIERS: ['declaration', 'readonly', 'u2Pair', 'u2Content', 'u2Styling', 'u2Reactive']
+    // `permissioned` marks a `this.<property>` whose property needs a
+    // permission to be read, written or listed (FoamIndex.isPermissioned).
+    TOKEN_MODIFIERS: ['declaration', 'readonly', 'u2Pair', 'u2Content', 'u2Styling', 'u2Reactive', 'permissioned']
   },
 
   properties: [
@@ -126,13 +128,20 @@ foam.CLASS({
       }
 
       // --- Build property set ---
+      // A property that needs a permission is marked so the editor can show
+      // it apart: `this.created` on a User reads differently from
+      // `this.firstName`, since only some users may see the first.
       var propertySet = {};
+      var lockedSet   = {};
+      var markLocked  = this.featureOn_('semanticTokens.permissions');
       if ( cls ) {
         var props = cls.getAxiomsByClass(foam.lang.Property);
         for ( var i = 0 ; i < props.length ; i++ ) {
           propertySet[props[i].name] = true;
+          if ( markLocked && this.index.isPermissioned(props[i]) ) lockedSet[props[i].name] = true;
         }
       }
+      var lockedBit = 1 << this.TOKEN_MODIFIERS.indexOf('permissioned');
       // Also pick up raw model properties (may not be registered yet)
       var rawProps = model.properties || [];
       for ( var i = 0 ; i < rawProps.length ; i++ ) {
@@ -194,7 +203,8 @@ foam.CLASS({
           if ( requiresSet[name] ) {
             tokens.push({ line: lineNum, char: charPos, length: name.length, type: 0, modifiers: 0 });
           } else if ( propertySet[name] ) {
-            tokens.push({ line: lineNum, char: charPos, length: name.length, type: 2, modifiers: 0 });
+            tokens.push({ line: lineNum, char: charPos, length: name.length, type: 2,
+              modifiers: lockedSet[name] ? lockedBit : 0 });
           } else if ( methodSet[name] ) {
             tokens.push({ line: lineNum, char: charPos, length: name.length, type: 8, modifiers: 0 });
           } else if ( importSet[name] ) {

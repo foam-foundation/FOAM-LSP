@@ -291,6 +291,34 @@ test(Object.keys(offTok).every(function(k) {
 test(offTok['5:11'] && offTok['5:11'][0].type === METHOD,
   'Semantic tokens: with u2 off, this.addClass keeps its plain method token');
 
+// `permissioned` marks this.<property> when the property needs a permission
+// (foam3 #5260). The fixture names the real foam.core.auth.User so its flags
+// come from the registry: created is readPermissionRequired, firstName is not.
+var lockText = [
+  "foam.CLASS({",                                                  // 0
+  "  package: 'foam.core.auth',",                                  // 1
+  "  name: 'User',",                                               // 2
+  "  methods: [",                                                  // 3
+  "    function f() {",                                            // 4
+  "      return this.created + this.firstName;",                   // 5
+  "    }",
+  "  ]",
+  "});"
+].join('\n');
+var VARIABLE = semanticHandler.TOKEN_TYPES.indexOf('variable');
+var lockTok = tokensAt(semanticHandler.handle(lockText, 'file:///tmp/lsptest-permissioned.js').data);
+test(lockTok['5:18'] && lockTok['5:18'][0].type === VARIABLE && lockTok['5:18'][0].modifiers === u2Mod('permissioned'),
+  'Semantic tokens: this.created on User carries permissioned: ' + JSON.stringify(lockTok['5:18']));
+test(lockTok['5:33'] && lockTok['5:33'][0].type === VARIABLE && lockTok['5:33'][0].modifiers === 0,
+  'Semantic tokens: this.firstName carries no modifier: ' + JSON.stringify(lockTok['5:33']));
+var lockOff = foam.parse.lsp.handlers.SemanticTokenHandler.create({
+  index: h.index, cache: h.cache, typeTracker: h.typeTracker,
+  featureConfig: require('../src/FeatureConfig').load({ initOptions: { features: { 'semanticTokens.permissions': false } } })
+});
+var lockOffTok = tokensAt(lockOff.handle(lockText, 'file:///tmp/lsptest-permissioned.js').data);
+test(lockOffTok['5:18'] && lockOffTok['5:18'][0].modifiers === 0,
+  'Semantic tokens: semanticTokens.permissions off leaves this.created a plain property token');
+
 
 // === DocumentSymbol extents ===
 //
@@ -445,6 +473,36 @@ if ( selfPath ) {
 test(selfPath && index.getRefinements('foam.dao.EasyDAO').length === refBefore,
   'two saves of a refining file leave the refinement count unchanged: ' +
   refBefore + ' -> ' + index.getRefinements('foam.dao.EasyDAO').length);
+
+
+// A permission flag set out of sight gets a lock hint (foam3 #5260). The
+// fixture is the real foam.core.notification.Notification: it implements
+// foam.core.auth.CreatedByAware, which sets columnPermissionRequired on
+// createdBy and createdByAgent. Notification's own createdByAgent writes the
+// read and write flags itself, so only the column one is out of sight there.
+section('InlayHintHandler — permission flags');
+var lockInlayText =
+  "foam.CLASS({\n" +                                                                  // line 0
+  "  package: 'foam.core.notification',\n" +                                          // line 1
+  "  name: 'Notification',\n" +                                                       // line 2
+  "  properties: [\n" +                                                               // line 3
+  "    { name: 'createdBy' },\n" +                                                     // line 4
+  "    { name: 'createdByAgent', readPermissionRequired: true, writePermissionRequired: true },\n" + // line 5
+  "    { class: 'String', name: 'body' }\n" +                                          // line 6
+  "  ]\n" +
+  "});\n";
+var lockInlay = inlayHandler.handle(lockInlayText, null, 'file:///nowhere/LockProbe.js');
+function lockHints(line) {
+  return hintsOn(lockInlay, line).filter(function(x) { return x.label.indexOf('\uD83D\uDD12') === 0; });
+}
+var byLock = lockHints(4);
+test(byLock.length === 1 && byLock[0].label === '\uD83D\uDD12 column' &&
+  byLock[0].tooltip === 'column: notification.column.createdby (columnPermissionRequired on foam.core.auth.CreatedByAware)',
+  'an inherited flag shows as a lock hint naming the permission and where it is set: ' + JSON.stringify(byLock));
+var agentLock = lockHints(5);
+test(agentLock.length === 1 && agentLock[0].label === '\uD83D\uDD12 column',
+  'flags written on the declaration itself get no hint, only the inherited one: ' + JSON.stringify(agentLock));
+test(lockHints(6).length === 0, 'a property needing no permission gets no lock hint');
 
 
 // === DocumentSymbol: a parse that stops early is not a finished range ===
