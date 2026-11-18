@@ -108,7 +108,8 @@ function create(opts) {
   }
 
   // Findings per file, kept while the file's mtime is unchanged: a write
-  // re-checks only the files that changed.
+  // re-checks only the files that changed. A journal's findings are also read
+  // from the live classes, so write() drops them when a class changed.
   var memo = {};
   function perFile(kind, f, find) {
     var m; try { m = fs.statSync(f).mtimeMs; } catch ( e ) { return []; }
@@ -164,10 +165,19 @@ function create(opts) {
     fs.renameSync(tmp, file);
   }
 
+  // Set while the watcher re-registers a batch of files: each one asks for a
+  // write, and the batch gets one.
+  var held = null;
+
   function write(changed) {
+    if ( held && changed ) { held.push.apply(held, changed); return true; }
     var g = request();
     if ( ! g ) return false;
     var t0 = Date.now();
+    // A changed class can add or remove a key a journal row sets.
+    if ( changed ) Object.keys(memo).forEach(function(k) {
+      if ( k.indexOf('journal ') === 0 ) delete memo[k];
+    });
     if ( ! changed && ! Object.keys(seen).length ) seedSeen();     // the first types file
     var out = path.join(work, 'app.d.ts.' + process.pid + '.tmp');
     var r;
@@ -202,19 +212,29 @@ function create(opts) {
 
   // Watch the checked folders: an edit made outside the editor (Claude Code's
   // Edit tool) reaches the server no other way. onChange re-registers the file.
+  // One timer for all of them: a branch switch changes many files, and they
+  // get one write, not one each.
   function watch(onChange) {
-    var timers = {};
+    var pending = {}, timer = null;
+    function flush() {
+      var files = Object.keys(pending).filter(function(f) { return fs.existsSync(f); });
+      pending = {}; timer = null;
+      held = [];
+      try { files.forEach(onChange); }
+      finally {
+        var changed = held;
+        held = null;
+        if ( changed.length ) write(changed);
+      }
+    }
     dirs.forEach(function(d) {
       if ( ! fs.existsSync(d) ) return;
       try {
         fs.watch(d, { recursive: true }, function(ev, name) {
           if ( ! name || ! /\.js$/.test(name) ) return;
-          var f = path.join(d, name);
-          clearTimeout(timers[f]);
-          timers[f] = setTimeout(function() {
-            delete timers[f];
-            if ( fs.existsSync(f) ) onChange(f);
-          }, 30);
+          pending[path.join(d, name)] = true;
+          clearTimeout(timer);
+          timer = setTimeout(flush, 30);
         });
       } catch ( e ) {
         log('[FTypechecks] cannot watch ' + d + ': ' + e.message);

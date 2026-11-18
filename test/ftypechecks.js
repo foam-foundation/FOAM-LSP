@@ -78,7 +78,42 @@ test(lsp.generator === '/plugin/scripts/gen-types.js', 'ftypechecks: lsp.json ec
 test(lsp.seen && lsp.seen[path.join(src, 'Thing.js')] === fs.statSync(path.join(src, 'Thing.js')).mtimeMs, 'ftypechecks: lsp.json saw the changed file');
 test(ftc && ftc.isCurrent(path.join(src, 'Thing.js')), 'ftypechecks: isCurrent after the write');
 
-fs.rmSync(dir, { recursive: true, force: true });
+// PR #38 review: a journal's findings are read from the live classes, so a
+// class that gains or loses a property changes them while the journal's own
+// file stays as it was.
+var redefine = function(text) {
+  fs.writeFileSync(path.join(src, 'Thing.js'), text);
+  var saved = foam.sourceFile;
+  foam.sourceFile = path.join(src, 'Thing.js');
+  try { eval(text); } finally { foam.sourceFile = saved; }
+  if ( typeof h.index.invalidate === 'function' ) h.index.invalidate('ftc.test.Thing');
+  ftc.write([ path.join(src, 'Thing.js') ]);
+  rep = read('report.json') || {};
+};
+redefine(model.replace("{ class: 'String', name: 'label' }", "{ class: 'String', name: 'label' }, { class: 'Int', name: 'nope' }"));
+test(jr('unknown key').length === 0, 'ftypechecks: a property the class gained is no longer an unknown key in report.journal (got ' + jr('unknown key').length + ')');
+test(jr('text after the row').length === 1, 'ftypechecks: the journal\'s other findings stay after a class change');
+redefine(model);
+test(jr('unknown key').length === 1, 'ftypechecks: a property the class lost is an unknown key again (got ' + jr('unknown key').length + ')');
+
+// PR #38 review: many files changed at once (a branch switch) get one write.
+var wrote = function() { return logs.filter(function(m) { return /wrote types/.test(m); }); };
+var watchDone = new Promise(function(resolve) {
+  var before = wrote().length, asked = [];
+  ftc.watch(function(f) { asked.push(path.basename(f)); ftc.write([ f ]); });
+  setTimeout(function() {           // the watcher is listening
+    fs.writeFileSync(path.join(src, 'One.js'), '// one\n');
+    fs.writeFileSync(path.join(src, 'Two.js'), '// two\n');
+    setTimeout(function() {
+      var after = wrote().slice(before);
+      test(asked.indexOf('One.js') !== -1 && asked.indexOf('Two.js') !== -1, 'ftypechecks watch: each changed file is re-registered (got ' + asked.join() + ')');
+      test(after.length === 1, 'ftypechecks watch: files changed together get one write (got ' + after.length + ')');
+      test(after[0] && /One\.js/.test(after[0]) && /Two\.js/.test(after[0]), 'ftypechecks watch: the one write names both files');
+      fs.rmSync(dir, { recursive: true, force: true });
+      resolve();
+    }, 500);
+  }, 100);
+});
 
 // PR #37 review: a FOAM file changed on disk while the editor holds unsaved
 // text for it. reindexFromDisk_ re-registers the disk text, and while it runs
@@ -173,4 +208,4 @@ var laneDone = h.withServerLane(async function() {
   }
 });
 
-module.exports = { done: laneDone };
+module.exports = { done: Promise.all([ laneDone, watchDone ]) };
