@@ -108,6 +108,27 @@ foam.CLASS({
       return foam.isRegistered(id);
     },
 
+    function classDeclared(id) {
+      /**
+       * Whether the class exists anywhere the server can run it, loaded here
+       * or not: registered, in the POM file index (test and other flagged
+       * classes), or a hand-written .java file under a src/ folder (a pom's
+       * javaFiles). A journal row may name any of these; the registry alone
+       * knows only what this process loaded, which called 219 of foam3's
+       * journal classes unknown.
+       */
+      if ( this.classExists(id) || this.getFilePath(id) != null ) return true;
+      var memo = this.cache_.javaOnly || ( this.cache_.javaOnly = Object.create(null) );
+      if ( ! ( id in memo ) ) {
+        var roots = globalThis.__foamLSPRoots__ || {};
+        var rel   = id.split('.').join(require('path').sep) + '.java';
+        memo[id] = [ roots.foam3, roots.project ].filter(Boolean).some(function(r) {
+          return require('fs').existsSync(require('path').join(r, 'src', rel));
+        });
+      }
+      return memo[id];
+    },
+
     function getPropertyTypes() {
       /** Finds all classes that extend foam.lang.Property. */
       if ( this.cache_.propertyTypes ) return this.cache_.propertyTypes;

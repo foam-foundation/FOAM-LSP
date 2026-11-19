@@ -14,7 +14,8 @@ foam.CLASS({
     'foam.parse.lsp.FoamClassGrammar',
     'foam.parse.lsp.CursorAnalyzer',
     'foam.parse.lsp.Diagnostic',
-    'foam.parse.lsp.handlers.JavaBlockValidator'
+    'foam.parse.lsp.handlers.JavaBlockValidator',
+    'foam.parse.lsp.handlers.TypingChecker'
   ],
 
   properties: [
@@ -47,6 +48,12 @@ foam.CLASS({
       of: 'foam.parse.lsp.handlers.JavaBlockValidator',
       name: 'javaValidator',
       factory: function() { return this.JavaBlockValidator.create({ index: this.index }); }
+    },
+    {
+      class: 'FObjectProperty',
+      of: 'foam.parse.lsp.handlers.TypingChecker',
+      name: 'typingChecker',
+      factory: function() { return this.TypingChecker.create({ index: this.index, grammar: this.grammar }); }
     },
     {
       name: 'prevResults_',
@@ -472,6 +479,12 @@ foam.CLASS({
 
       // Validate expression parameters
       this.validateExpressions_(m, text, diagnostics);
+
+      // Typing style rules. Off by default, also in a bare handler (unlike
+      // featureOn_): only a project that asks for them gets them.
+      if ( this.featureConfig && this.featureConfig.enabled('diagnostics.typing') ) {
+        this.typingChecker.validateModel(m, text, diagnostics);
+      }
 
       // i18n hardcoded .add() strings are scanned once per file in handle()
       // (validateAddStrings_), not here — they need whole-file scoping.

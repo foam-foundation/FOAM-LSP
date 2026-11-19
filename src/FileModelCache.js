@@ -34,6 +34,23 @@ foam.CLASS({
   ],
 
   methods: [
+    function scriptStandins_() {
+      /**
+       * Fresh for each file, so nothing one file sets leaks into the next.
+       * require and module read as absent (as in a browser, where FOAM model
+       * files also load), so a `typeof require` guard takes the browser path.
+       */
+      return {
+        process: {
+          argv: [], env: {}, platform: process.platform, version: process.version, versions: process.versions,
+          exit: function() {}, on: function() {}, once: function() {}, cwd: function() { return process.cwd(); },
+          nextTick: function() {}, stdout: { write: function() {} }, stderr: { write: function() {} }
+        },
+        require: undefined, module: undefined, exports: undefined,
+        setTimeout: function() {}, setInterval: function() {}, setImmediate: function() {}
+      };
+    },
+
     function getModels(uri, text) {
       /** Returns cached model objects for a file, or parses fresh. */
       if ( this.cache_[uri] && this.cache_[uri].text === text ) {
@@ -299,7 +316,12 @@ foam.CLASS({
           return target[prop];
         }
       });
-      var context = { foam: foamProxy };
+      // The file's top-level code runs here, in the server's process. A
+      // source folder can hold plain scripts too (a test runner ending in
+      // process.exit(...) stopped the whole server when it was opened), so
+      // what a script reaches for outside FOAM gets a stand-in that does
+      // nothing: the process, require, and timers.
+      var context = Object.assign({ foam: foamProxy }, this.scriptStandins_());
 
       try {
         with ( context ) { eval(text); }

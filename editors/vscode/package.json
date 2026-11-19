@@ -50,6 +50,16 @@
           "default": true,
           "description": "Diagnostics for css: text the CSS grammar cannot parse: a missing ';', a stray '}', a '//' line, an unclosed string or comment. Takes effect after a server restart."
         },
+        "foam.features.diagnostics.journalRows": {
+          "type": "boolean",
+          "default": true,
+          "description": "Journal (.jrl) rows FOAM's server reader cannot use: a row split over lines, a line that is no row, a row that does not parse, text after a row's closing brace, two or more rows of a class with no id. Takes effect after a server restart."
+        },
+        "foam.features.diagnostics.typing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Typing style warnings: a property with no class, a method argument with no type, an import with no type, a DAO import with no 'of'. Off unless the workspace has a foam-check.config.json (FTypechecks) or you turn it on. Takes effect after a server restart."
+        },
         "foam.features.diagnostics.i18n": {
           "type": "boolean",
           "default": true,
@@ -148,9 +158,9 @@
         },
         "foam.lint.checks": {
           "type": "array",
-          "items": { "type": "string", "enum": ["pom-membership", "rule-group", "strategy-ref"] },
+          "items": { "type": "string", "enum": ["pom-membership", "rule-group", "strategy-ref", "typing", "journal-rows"] },
           "default": ["rule-group", "strategy-ref"],
-          "description": "Which lint checks to run. 'pom-membership' is off by default: on a mature workspace it reports hundreds of pre-existing findings. Enable it for a debt triage pass."
+          "description": "Which lint checks to run. 'pom-membership' is off by default: on a mature workspace it reports hundreds of pre-existing findings. Enable it for a debt triage pass. 'typing' (a property with no class, an untyped argument or import) and 'journal-rows' (journal rows FOAM's reader cannot use, unknown classes and keys) run only when listed here."
         },
         "foam.lint.scope": {
           "type": "string",

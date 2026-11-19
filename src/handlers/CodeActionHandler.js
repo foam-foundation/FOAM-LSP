@@ -14,6 +14,8 @@ foam.CLASS({
     { name: 'index' },
     { name: 'cssTokenResolver' },
     { name: 'i18nHandler' },
+    { name: 'cache', documentation: 'FileModelCache; with typingChecker, rebuilds the typing fixes (a diagnostic on the wire carries no fix).' },
+    { name: 'typingChecker' },
     {
       name: 'featureConfig',
       documentation: 'Optional feature-toggle config from src/FeatureConfig (server.js wires it). Null means "every action offered" — an absent config must never remove an action.'
@@ -200,6 +202,22 @@ foam.CLASS({
           });
         }
 
+        // Typing rule → the fixes TypingChecker found for this member. Only a
+        // lone fix is preferred: of Int, Long and Float no auto fix may pick one.
+        if ( /^typing-/.test(diag.code) ) {
+          var tfs = this.typingFixes_(text, uri, diag);
+          tfs.forEach(function(tf) {
+            var at = this.typingChecker.analyzer.offsetToPosition(text, tf.offset);
+            actions.push({
+              title:       tf.title,
+              kind:        'quickfix',
+              isPreferred: tfs.length === 1,
+              diagnostics: [diag],
+              edit: { changes: this.makeEdit_(uri, { start: at, end: at }, tf.insert) }
+            });
+          }, this);
+        }
+
         // Wrong Java import package → replace
         var wrongPkgMatch = diag.message.match(/Wrong Java package[^']*'([^']+)'/);
         if ( wrongPkgMatch ) {
@@ -217,6 +235,20 @@ foam.CLASS({
       }
 
       return actions;
+    },
+
+    function typingFixes_(text, uri, diag) {
+      /** The fixes of the typing finding this diagnostic reports, found again in the current text; [] when none. */
+      if ( ! this.cache || ! this.typingChecker ) return [];
+      var self = this, models = this.cache.getModels(uri, text);
+      for ( var i = 0 ; i < models.length ; i++ ) {
+        var hit = this.typingChecker.check(models[i], text).filter(function(f) {
+          var p = self.typingChecker.analyzer.offsetToPosition(text, f.start);
+          return f.code === diag.code && f.fixes.length && p.line === diag.range.start.line && p.character === diag.range.start.character;
+        })[0];
+        if ( hit ) return hit.fixes;
+      }
+      return [];
     },
 
     function makeEdit_(uri, range, newText) {

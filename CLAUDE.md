@@ -14,8 +14,8 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | File | Purpose | Key Functions |
 |---|---|---|
 | `logError.js` | The one logging idiom for a degraded-but-not-fatal failure — see "A fallback leaves a trace" below | `logLspError(context, err)` |
-| `FileModelCache.js` | Eval-intercept model extraction + caching | `getModels()`, `getModelAt()`, `parseFileModels()`. `sourceLine_` and `sourceOffset_` on each model come from `FileClassifier.significantCalls()`; the offset only breaks ties when `FoamClassGrammar.modelEntryFor` pairs a model with its extent by name |
-| `FoamIndex.js` | Query layer over FOAM registry | `getAllClassIds()`, `getProperties()`, `getFilePath()`, `getClassLine()`, `getSymbolPosition()`, `resolveSymbol()`, `buildFileIndex()`, `getRefinements()`, `getRelationshipProperty()`, `getDeprecation()` (the `deprecated:` marker every surface reads — see "Diagnostic tags and related locations") |
+| `FileModelCache.js` | Eval-intercept model extraction + caching | `getModels()`, `getModelAt()`, `parseFileModels()`. The file's top-level code runs in this process, so `process` and timers are stand-ins and `require`/`module` read as absent (`scriptStandins_`, fresh per file): a test runner in a source folder ending in `process.exit(...)` used to stop the server when it was read. Not a sandbox: `globalThis` stays reachable. `sourceLine_` and `sourceOffset_` on each model come from `FileClassifier.significantCalls()`; the offset only breaks ties when `FoamClassGrammar.modelEntryFor` pairs a model with its extent by name |
+| `FoamIndex.js` | Query layer over FOAM registry | `getAllClassIds()`, `getProperties()`, `getFilePath()`, `getClassLine()`, `getSymbolPosition()`, `resolveSymbol()`, `buildFileIndex()`, `getRefinements()`, `getRelationshipProperty()`, `getDeprecation()` (the `deprecated:` marker every surface reads — see "Diagnostic tags and related locations"), `classDeclared()` (registered, in the file index, or a hand-written `.java` under a `src/` folder: what a journal row may name) |
 | `FoamClassGrammar.js` | Grammar parser: completion `sug()` plus the single-parse position harvest | Skip-and-match pattern, dynamic `sug()` from registry; `collectAxiomPositions()`, `collectModelExtents()`, `modelEntryFor()`, `collectRelationshipProperties()` — see "Grammar-harvested positions" |
 | `CursorAnalyzer.js` | Shared text/position utilities + regex fallback | `offsetToPosition()`, `offsetMapper()` (many offsets, one text), `resolveClassId()`, `parseRequires()`, `findCreateContext()` |
 | `TypeTracker.js` | Variable type resolution from `.create()` assignments | `getVariableTypes()` |
@@ -24,7 +24,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `JournalEntryIndex.js` | Query-driven journal lookup: service name / model-entry id → journal file + line. Entry slicing is `JrlLoader.sliceEntries()`; this class only adds ordered ops + a per-entry key. Service lookups touch only services.jrl, but EVERY services.jrl in the workspace (`FoamIndex.getServiceJournalFiles()`, nearest-first from the asking file); entry lookups stay on the pom/source directory answer (`getJournalDirs()`); journals over maxFileSize skipped; raw-text pre-gate skips parsing non-matching files; per-entry eval isolates malformed entries; per-file parses cached by mtime+size; invalidated on .jrl save | `getServiceLocations()`, `getEntryLocations()`, `invalidate()` |
 | `FileClassifier.js` | The ONE answer to "what kind of file is this", and the ONE scan for where a file's `foam.<X>(` calls are | `classify(uri, text)`. `.jrl` and `pom.js` are decided by FILENAME; everything else by PARSE — the first significant `foam.UPPERCASE(` call, where significant means outside comments and string literals. Every gate routes through one shared instance — server dispatch, `DiagnosticsHandler`, and the six handlers that used to sniff with their own regex (CodeLens, Completion, Definition, Hover, MemberCompletion, Symbol), which is also what makes its per-URI memo effective. `significantCalls(text)` returns every such call as `{ name, offset, line, nested }` — `nested` marks a call inside another foam call's parentheses (a class a method builds at runtime); the bracket count skips regex literals by the previous-token rule — see "Model positions" below; `commentSpans(text)` returns the comments that same walk skipped, so it shares the regex-literal rule: the `/*` in `var re = /[/*]/;` is part of the regex, not a comment |
 | `server.js` | JSON-RPC main loop | Message dispatch, handler creation, helper functions |
-| `lintChecks.js` | foam-lint check names | The one list `LintHandler.ALL_CHECKS` and the MCP `foam_lint` enum both read, so a new check shows up on every surface |
+| `lintChecks.js` | foam-lint check names | The one list `LintHandler.ALL_CHECKS` and the MCP `foam_lint` enum both read, so a new check shows up on every surface. `.DEFAULT` runs when no checks are named; `.OPT_IN` (`typing`, `journal-rows`) only when named, so adding them did not change what an existing CI run reports |
 | `bin/lint-cli.js` | foam-lint without the LSP server | Boots pmake, runs `LintHandler.lint()`; `--diff <ref>`, `--checks`, `--format text\|json`, `--strict`; exit 0 clean or warns only, 1 any error (any finding with `--strict`), 2 boot, check-name or `--diff` ref error. `--diff` paths are cwd-relative (`git diff --relative`), so the project may be a repo subdirectory |
 | `lsp-start.js` | Entry point | Console redirect, buildlib globals, pmake invocation |
 | `LSPMaker.js` | Build Maker for pmake | Sets flags, builds file index, starts server |
@@ -38,6 +38,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `DefinitionHandler.js` | `textDocument/definition` | File index lookup for class → file path |
 | `DiagnosticsHandler.js` | `textDocument/{publishDiagnostics,diagnostic}` | Push + pull diagnostic models. `tags` / `relatedInformation` only when the client declared them — see "Diagnostic tags and related locations" |
 | `JavaBlockValidator.js` | (called by Diagnostics) | Java import validation, getter/setter validation via model fields |
+| `TypingChecker.js` | (called by Diagnostics and CodeAction) | Typing style rules, gated by `diagnostics.typing`: `typing-property-no-class`, `typing-untyped-args`, `typing-import-no-type`, `typing-dao-import-no-of` (WARNING, on the member's name). Reads the model as written (only what the file declares), and asks the live class where FOAM fills a type in: a property with no class that overrides a parent's gets the parent's class; a method override inherits the parent's `args`. For a class this process did not load (a test class) it asks what the model extends and implements. `check(m, text)` returns each finding with its fixes, so the warning and the quick fix are one answer: `class: 'Float'/'String'/'Boolean'/'Array'` from a property's literal `value:`, one fix and preferred; for a whole number `Int`, `Long` and `Float`, three fixes, none preferred (FOAM gives no class a plain `Property`, and `Int` truncates, so no auto fix may pick it), and the lint text names all three and how to pick (`NUMBER_FIX`); no fix when the value does not say. The gate is explicit, not `featureOn_`: a bare handler (no config) gets no typing warnings. Over a 1144-file app it agrees with FTypechecks' own report on every finding in a loaded class, minus 4 FOAM-added members the plugin flagged wrongly |
 | `SymbolHandler.js` | `textDocument/documentSymbol` | Document outline via model objects. `range` is the whole definition (the `foam.CLASS({...})` call, a property's `{...}` or `'name'`, a method's `function ... {}`), `selectionRange` just the name inside it, both from `collectModelExtents`. A member the grammar could not reach keeps the old zero-width point at its name |
 | `InlayHintHandler.js` | `textDocument/inlayHint` | `×N refinements` after a class name (`FoamIndex.getRefinements`, other files only), `: Type` after a property with no `class:` (the registry's resolved axiom; plain `Property` skipped), `overrides Parent` after a property a superclass declares (the parent axiom's `sourceCls_`). Type hints are kind 1 (Type); the other two carry no kind. Only hints inside the requested range; none on `.jrl`. Gated by `inlayHints` |
 | `WorkspaceAnalyzer.js` | `foam/analyzeWorkspace` | Full codebase scan |
@@ -49,7 +50,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `I18nHandler.js` | (called by Diagnostics/CodeAction/server.js custom methods) | i18n edit building (extract, messageMap), missing-language scan, translate-command execution |
 | `WorkspaceSymbolHandler.js` | `workspace/symbol` | Class + property + method search with ranking, cap 500 |
 | `RenameHandler.js` | `textDocument/{prepareRename,rename}` | Rename a class id + short-name occurrences |
-| `JrlHandler.js` | (custom hover + tokens for `.jrl`) | JRL class-ref resolution, embedded block tokens, cross-reference go-to-definition (daoKey → services.jrl CSpec, Reference values → journal entry, class ids inside serviceScript/client strings). A key naming a property declared `deprecated:` gets a `deprecated-property` HINT (see "Diagnostic tags and related locations"), a `**Deprecated.**` hover line, and `tags: [1]` on its completion item; `completionItemSupport` and `clientDiagnosticCaps` are wired from `initialize` like the other handlers, and the pull lane passes its own caps to `handleDiagnostics(text, uri, caps)` |
+| `JrlHandler.js` | (custom hover + tokens for `.jrl`) | JRL class-ref resolution, embedded block tokens, cross-reference go-to-definition (daoKey → services.jrl CSpec, Reference values → journal entry, class ids inside serviceScript/client strings). A key naming a property declared `deprecated:` gets a `deprecated-property` HINT (see "Diagnostic tags and related locations"), a `**Deprecated.**` hover line, and `tags: [1]` on its completion item; `completionItemSupport` and `clientDiagnosticCaps` are wired from `initialize` like the other handlers, and the pull lane passes its own caps to `handleDiagnostics(text, uri, caps)`. Row-shape diagnostics read rows the way the server will — see "Journal rows as FOAM reads them" |
 | `DocumentHighlightHandler.js` | `textDocument/documentHighlight` | Highlight all occurrences of identifier under cursor |
 | `TypeHierarchyHandler.js` | `textDocument/prepareTypeHierarchy` + `typeHierarchy/{supertypes,subtypes}` | Inheritance tree for any class, interface implementors included |
 | `ImplementationHandler.js` | `textDocument/implementation` | Concrete implementors of a FOAM interface |
@@ -59,7 +60,7 @@ The LSP boots the FOAM runtime via `pmake` (same as `build.sh`), loading all mod
 | `CodeLensHandler.js` | `textDocument/codeLens` | Two independent, feature-toggled lenses: `codeLens.i18n` (missing-translation counts, delegates to `I18nHandler.scanMissingLanguages` — so it inherits that entry point's `translationReady` gate AND its test/demo/mock URI exemption; also requires `hints.i18nMissingLanguage`, since clicking translates) and `codeLens.hierarchy` (subclass counts, informational — anchored on the advertised no-op command `foam.lens.info`; a click is answered with null). Both bail on a multi-model file. |
 | `DocumentColorHandler.js` | `textDocument/{documentColor,colorPresentation}` | Swatches for `$token`s and raw colour values inside `css:` blocks. Block spans come from the grammar's `cssBlock` records (`FoamClassGrammar.collectCssBlocks`), not `text.indexOf(model.css)`; tokens resolve through `CSSTokenResolver.resolveTokenValue` against the class whose `css:` block uses them (Tabs and SegmentedTabs both declare `tabActiveColor`, with different values), and a token that does not resolve to a colour gets no swatch. A raw literal counts only on the value side of a declaration and outside `url(...)` and quoted strings, so `#add` selectors, `url(#abc)` and `content: '#fff'` get no swatch. Raw literals are offered back as hex, rgb and hsl, with the author's current form first. `colorPresentation` on a `$token` answers the token's own text, so picking a colour never rewrites a token into a literal |
 | `DocumentLinkHandler.js` | `textDocument/documentLink` | Clickable class ids, target `file://<class file>#L<declaration line>`. Model files: the grammar's `classRef` + `instClassRef` records, kept only when the span is a WHOLE quoted string (a requires rename, `'foam.u2.DetailView as DV'`, counts: the alias sits between id and quote) — the grammar records a registered prefix before it checks the closing quote, so `'foam.u2.ViewXYZ'` leaves a `foam.u2.View` record that would link the wrong class. Journals: `FoamIndex.scanJrlClassRefs` (the semantic-token refs) plus `JrlGrammar` string refs that name a registered class, deduped by span. The `JrlGrammar` pass is skipped (and logged) above `maxJrlGrammarSize` (1 MB, the `JournalEntryIndex.maxFileSize` line): on a 4.6 MB data journal it cost ~5.5 s per request; the scan-only path takes ~120 ms. The grammar instance is JrlHandler's, so both share one parse cache. No file on record, no link |
-| `LintHandler.js` | `foam/lint` (custom request; also MCP `foam_lint`, `lint-cli.js`) | Registration checks across files: `pom-membership` (delegates to `PomValidator`), `rule-group`, `strategy-ref`. Findings are `{ check, severity: 'error'\|'warn', path, line, message, fix? }`, line = where the jrl entry starts (`JrlLoader.loadStringWithLines`); `scope: 'paths'` keeps findings in the given files plus every finding of a check whose input file (`CHECK_INPUTS`) is among them, so a renamed group reports the `rules.jrl` files still naming it. One workspace walk per `lint()` for all the journals the selected checks read. No `featureConfig` — it runs only when asked; VS Code's `foam.lint.*` settings gate the client side. Suppression marker: `foam-lint-ignore: strategy-ref` |
+| `LintHandler.js` | `foam/lint` (custom request; also MCP `foam_lint`, `lint-cli.js`) | Registration checks across files: `pom-membership` (delegates to `PomValidator`), `rule-group`, `strategy-ref`; and two per-file checks run only when named (`lintChecks.OPT_IN`): `typing` (`TypingChecker`) and `journal-rows` (`JrlHandler`'s `jrl-*` diagnostics), which in a `paths` run read only the given files, and leave out the files of the foam3 a project builds with. 18 s for both over a 1144-file app, boot included. Findings are `{ check, severity: 'error'\|'warn', path, line, message, fix? }`, line = where the jrl entry starts (`JrlLoader.loadStringWithLines`); `scope: 'paths'` keeps findings in the given files plus every finding of a check whose input file (`CHECK_INPUTS`) is among them, so a renamed group reports the `rules.jrl` files still naming it. One workspace walk per `lint()` for all the journals the selected checks read. No `featureConfig` — it runs only when asked; VS Code's `foam.lint.*` settings gate the client side. Suppression marker: `foam-lint-ignore: strategy-ref` |
 | `ScaffoldHandler.js` | `workspace/executeCommand` `foam.scaffold.newClass` | Builds a `WorkspaceEdit` (new class file + pom.js `files:` append) from `{ dir, name }`. Nothing written to disk server-side — the client applies the edit. No `featureConfig` — the command only runs when explicitly invoked. Containment: `wsRoot` and the target dir are both `fs.realpathSync`'d before comparison (a lexical compare let `ln -s / <ws>/escape` target `/etc`), and with `requireWsRoot` set and no `rootUri` from the client it refuses outright rather than inheriting `process.cwd()`. The derived package is validated as a dotted identifier path — a folder named `it's` is refused, not emitted into `package: '…'`. |
 
 ### Workspace usage indexes
@@ -338,7 +339,7 @@ cd <foam3 or app root> && node <FOAM-LSP>/test/run.js
 # One category (see test/run.js CATEGORIES for the full list —
 # foamIndex, grammar, utilities, completion, hover, diagnostics, i18n,
 # navigation, java, jrl, lint, vscodeLint, bareCatch, editorFeatures, typeHierarchy, usageIndex,
-# callHierarchy, pomValidation, pomNavigation, mcp):
+# callHierarchy, pomValidation, pomNavigation, mcp, typing):
 node <FOAM-LSP>/test/run.js i18n
 
 # FOAM-model tests (src/test, opt-in, run alone):
@@ -410,6 +411,35 @@ The journal check costs nothing on a journal with no deprecated key: the
 entries named one, lookups are memoized per class + property for the run, and
 journals over `JrlHandler.maxJrlGrammarSize` (1 MB) are skipped.
 
+### Journal rows as FOAM reads them
+`JrlHandler.findEntryAtLine_` and `JrlLoader` join a row's lines by brackets,
+which reads more rows as whole than the server does. `foamRows_` cuts the
+journal exactly as `foam.dao.AbstractF3FileJournal.getEntry` does: a line that
+is exactly `p({`, `c({` or `r({` starts a row that ends at a line that is
+exactly `})`; every other line is a row of its own. `parseFoamRow_` then reads
+it as `JSONParser.parseString` does: the first object after `p(`, the rest
+ignored. `addRowShapeDiags_` reports what the server cannot use, one code each
+(`ROW_RULES` holds the message and the fix):
+
+| Code | Severity | What happens on the server |
+|---|---|---|
+| `jrl-row-split` | ERROR | a row over several lines whose first line is not exactly `p({`: each line is read as a row, so it loads half-filled or not at all. Flagged once, on its first line |
+| `jrl-not-a-row` | WARNING | a line that is no row and no comment (a comment starts with `/` in column 0): read as a row, fails. An indented row gets its own fix (remove the spaces) |
+| `jrl-row-unparsed` | ERROR | the row's object does not parse: skipped. Strings read as FOAM's `StringParser` reads them (`jsonStrings_`): `"""`, `"`, `'` and backtick strings are plain text with `\` escapes, so `${...}` in a backtick string is text, not a template. FOAM reads a row without its last character (`F3FileJournal.js:161`), so `p({...}` with no `)` loses its `}`: flagged, with its own fix |
+| `jrl-row-trailing` | ERROR | text after the object's closing `}` (other than `)`, `;`, a `//` comment): dropped with no error, e.g. a key after the `}`, or two rows on one line (its own fix: a line of its own) |
+| `jrl-rows-no-id` | WARNING | two or more rows of one class with no id (read from the class's id axiom, since an id may be computed): a replay merges them into one row (`F3FileJournal.js:195-197`), each key keeping the last row's value |
+
+The unknown-class check accepts any class `FoamIndex.classDeclared` knows: a
+test or Java-only class is valid on the server even though this process never
+loaded it (219 of foam3's journal class names were flagged before). Over
+foam3's journals the row-shape rules find 3 real rows (a key after the `}`,
+two rows on one line, a missing comma). A row with `{name}` placeholders that a
+setup script fills in (`tools/setup/*.jrl`) is a template, not flagged. The
+no-id rule reads the class's id axiom (`ID.propNames` for `ids:`, else the id
+property's expression/factory/getter/default) and never creates an object.
+Gated by `diagnostics.journalRows` (default on). `evalJrlObject_` evaluates a
+row's text: the `journal-rows` lint check does that for every journal it reads.
+
 ### Adding to the grammar
 1. Add rule in `FoamClassGrammar.buildGrammar_()`
 2. Use `P.sug()` for completions, `P.sym()` for rule references
@@ -467,7 +497,10 @@ its handlers are plain Node consumers, so it stays a bare `require()` with no
 FOAM boot cost) that merges three layers into one config object, lowest to
 highest precedence:
 
-1. **`DEFAULTS`** (`FeatureConfig.js`) — baked-in fallback for every flag.
+1. **`DEFAULTS`** (`FeatureConfig.js`) — baked-in fallback for every flag;
+   then **`projectDefaults`**, defaults `server.js` derives from the project
+   and passes in (a `foam-check.config.json` → `diagnostics.typing: true`).
+   FeatureConfig reads no file for this layer, so Ruling R1 holds.
 2. **`foam-lsp.json`** at the workspace root — optional; a missing file is
    silent, malformed JSON gets one warning and that layer is skipped.
 3. **`initializationOptions.foam`** from the LSP client (VS Code settings,
@@ -506,6 +539,8 @@ all (`server.js:613-635`).
 | `diagnostics.java` | `true` | Java-block validation diagnostics |
 | `diagnostics.i18n` | `true` | Hardcoded-display-string diagnostic |
 | `diagnostics.pom` | `true` | Entry-level pom.js diagnostics (`PomValidator.validateEntries` via `DiagnosticsHandler.pomDiagnostics_`) |
+| `diagnostics.journalRows` | `true` | Journal row-shape diagnostics (`JrlHandler.addRowShapeDiags_`: `jrl-row-split`, `jrl-not-a-row`, `jrl-row-unparsed`, `jrl-row-trailing`, `jrl-rows-no-id`). The unknown-class and unknown-key checks stay on |
+| `diagnostics.typing` | `false` | Typing style warnings and their quick fixes (`TypingChecker`). A workspace with a `foam-check.config.json` turns it on (`projectDefaults`, below); `foam-lsp.json` or the client can still turn it off |
 | `diagnostics.cssSyntax` | `true` | `CSS syntax:` diagnostics from the `foam.u2.parse.CSSParser` grammar over `css:` (`DiagnosticsHandler.validateCSSSyntax_`); the token, raw-colour and unused-`^class` checks read the same parse and stay on |
 | `hints.i18nMissingLanguage` | `true` | Every unsolicited offer to machine-translate: the missing-translation HINT, code actions C/D, AND the `codeLens.i18n` lens (clicking it translates) |
 | `completion` | `true` | `completionProvider` capability |

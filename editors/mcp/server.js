@@ -372,7 +372,7 @@ function toolSchemas() {
         properties: {
           scope:           { type: 'string', enum: [ 'all', 'paths' ], description: "Default 'all'. 'paths' filters findings to the given files (pass changed files for a diff-scoped run)." },
           paths:           { type: 'array', items: { type: 'string' }, description: 'Project-relative or absolute paths (used with scope=paths)' },
-          checks:          { type: 'array', items: { type: 'string', enum: LINT_CHECKS }, description: 'Subset of: ' + LINT_CHECKS.join(', ') + '. Default: all.' },
+          checks:          { type: 'array', items: { type: 'string', enum: LINT_CHECKS }, description: 'Subset of: ' + LINT_CHECKS.join(', ') + '. Default: ' + LINT_CHECKS.DEFAULT.join(', ') + '; ' + LINT_CHECKS.OPT_IN.join(' and ') + ' run only when named (typing: a property with no class, an untyped argument or import; journal-rows: journal rows FOAM cannot use, unknown classes and keys).' },
           strategyTargets: { type: 'array', items: { type: 'string' }, description: "Extra strategy interfaces for the strategy-ref check. Default: ['foam.core.ruler.RuleAction']." }
         }
       }

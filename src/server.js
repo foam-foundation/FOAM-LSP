@@ -70,7 +70,7 @@ function start() {
 
   var signatureHelpHandler   = foam.parse.lsp.handlers.SignatureHelpHandler.create({ index: index, cache: fileModelCache });
   var foldingRangeHandler    = foam.parse.lsp.handlers.FoldingRangeHandler.create();
-  var codeActionHandler      = foam.parse.lsp.handlers.CodeActionHandler.create({ index: index, cssTokenResolver: cssTokenResolver, i18nHandler: i18nHandler, featureConfig: featureConfig });
+  var codeActionHandler      = foam.parse.lsp.handlers.CodeActionHandler.create({ index: index, cssTokenResolver: cssTokenResolver, i18nHandler: i18nHandler, featureConfig: featureConfig, cache: fileModelCache, typingChecker: diagnosticsHandler.typingChecker });
   var codeLensHandler        = foam.parse.lsp.handlers.CodeLensHandler.create({ fileClassifier: fileClassifier, index: index, cache: fileModelCache, i18nHandler: i18nHandler, featureConfig: featureConfig });
   var inlayHintHandler       = foam.parse.lsp.handlers.InlayHintHandler.create({ fileClassifier: fileClassifier, index: index, cache: fileModelCache, grammar: grammar });
   var workspaceSymbolHandler = foam.parse.lsp.handlers.WorkspaceSymbolHandler.create({ index: index });
@@ -441,6 +441,11 @@ function start() {
 
       // Re-register the classes via real foam.CLASS. Wrap each model block
       // in a try/catch so one bad block doesn't skip the rest.
+      // foam.CLASS records foam.sourceFile as the class's source file.
+      var prevSourceFile = foam.sourceFile;
+      try { foam.sourceFile = uriToPath_(uri); }
+      catch ( e ) { require('./logError').logLspError('reindex: source path of ' + uri, e); }
+      try {
       for ( var i = 0 ; i < models.length ; i++ ) {
         var m = models[i];
         try {
@@ -452,6 +457,9 @@ function start() {
           console.error('[LSP] reindex re-register failed for ' +
             (m.package ? m.package + '.' : '') + m.name + ': ' + e.message);
         }
+      }
+      } finally {
+        foam.sourceFile = prevSourceFile;
       }
 
       // Clear FoamIndex caches for each class defined in this file and
@@ -684,8 +692,10 @@ function start() {
           }
         }
         featureConfig = FeatureConfig.load({
-          rootPath:    wsRoot,
-          initOptions: params && params.initializationOptions && params.initializationOptions.foam
+          rootPath:        wsRoot,
+          // A project that type-checks its models wants the typing rules.
+          projectDefaults: wsRoot && fs_.existsSync(path_.join(wsRoot, 'foam-check.config.json')) ? { 'diagnostics.typing': true } : null,
+          initOptions:     params && params.initializationOptions && params.initializationOptions.foam
         });
         featureConfig.warnings.forEach(function(w) { console.error('[LSP] config: ' + w); });
         diagnosticsHandler.featureConfig = featureConfig;
@@ -701,6 +711,7 @@ function start() {
         diagnosticsHandler.clientDiagnosticCaps = pubDiagCaps;
         workspaceAnalyzer.diagnosticsHandler.clientDiagnosticCaps = pubDiagCaps;
         jrlHandler.clientDiagnosticCaps = pubDiagCaps;
+        jrlHandler.featureConfig        = featureConfig;
         // The pull lane (textDocument/diagnostic) has its own capability
         // block, and LSP 3.18 lets a client declare relatedInformation /
         // tagSupport there. A client may pull with a different consumer than
