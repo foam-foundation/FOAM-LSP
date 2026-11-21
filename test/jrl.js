@@ -374,6 +374,22 @@ var diagValid = 'p({"class":"foam.parse.lsp.test.JrlTestModel","id":1,"accountNo
 var diags3 = jrlHandler.handleDiagnostics(diagValid, '');
 test(diags3.length === 0, 'JRL diagnostics: valid entry produces no diagnostics');
 
+// FOAM's reference objects (foam.lang.__Property__, __Class__, __Timestamp__):
+// their keys are arguments to the class's own create, not properties.
+var refRow = function(cls) {
+  return 'p({"class":"foam.mlang.order.Desc","arg1":{"class":"' + cls + '","forClass_":"foam.core.auth.User","name":"created"}})';
+};
+test(jrlHandler.handleDiagnostics(refRow('__Property__'), '').length === 0,
+  'JRL diagnostics: a __Property__ reference is not checked for unknown keys');
+test(jrlHandler.handleDiagnostics(refRow('foam.lang.__Property__'), '').length === 0,
+  'JRL diagnostics: the same with its full id');
+var refOthers = jrlHandler.handleDiagnostics(
+  'p({"class":"foam.parse.lsp.test.JrlTestModel","id":1,"nonExistentProp":[' +
+  '{"class":"foam.lang.__Class__","forClass_":"foam.core.auth.User"},{"class":"foam.lang.__Timestamp__","value":1}]})', '');
+test(refOthers.length === 1 && /nonExistentProp/.test(refOthers[0].message),
+  'JRL diagnostics: __Class__ and __Timestamp__ references are not checked; the row\'s own unknown key still is (got ' +
+  refOthers.map(function(d) { return d.message; }).join(' | ') + ')');
+
 // Multi-line diagnostics
 var diagMulti = 'p({\n  "class": "com.nonexistent.FakeClass456",\n  "id": 1\n})';
 var diags4 = jrlHandler.handleDiagnostics(diagMulti, '');
