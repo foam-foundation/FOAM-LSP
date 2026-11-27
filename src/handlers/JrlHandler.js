@@ -1494,6 +1494,10 @@ foam.CLASS({
        * addDeprecatedKeyDiags_ to place; `deprecated.memo` caches the lookups.
        */
       if ( ! entry || ! cls ) return;
+      // foam.lang.__Property__, __Class__ and __Timestamp__ (JSON.js) are how
+      // FOAM writes a reference to a property, a class or a date: each replaces
+      // its create, and the keys are that create's arguments, not properties.
+      if ( /^foam\.lang\.__\w+__$/.test(cls.id) ) return;
 
       for ( var key in entry ) {
         if ( key === 'class' ) continue;
